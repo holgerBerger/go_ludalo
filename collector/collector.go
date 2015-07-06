@@ -2,28 +2,28 @@
 
 package main
 
-import ("fmt"
-	"os"
+import (
+	"fmt"
 	"lustreserver"
-    )
+	"os"
+)
 
 func main() {
 
-	hostname,_ := os.Hostname()
-	fmt.Printf("go collector running on "+ hostname + "\n")
+	hostname, _ := os.Hostname()
+	fmt.Printf("go collector running on " + hostname + "\n")
 
-	
-    if _, err := os.Stat(lustreserver.Procdir + "ost"); err == nil {
-        fmt.Printf(" serving oss data\n")
+	if _, err := os.Stat(lustreserver.Procdir + "ost"); err == nil {
+		fmt.Printf(" serving oss data\n")
 		lustreserver.OssRPC()
 	}
-    
+
 	if _, err := os.Stat(lustreserver.Procdir + "mds"); err == nil {
-        fmt.Printf(" serving mds data\n")
+		fmt.Printf(" serving mds data\n")
 		lustreserver.MdsRPC()
 	}
-    
-    // here we block endless
-    lustreserver.StartServer()
-    
+
+	// here we block endless
+	lustreserver.StartServer()
+
 }
