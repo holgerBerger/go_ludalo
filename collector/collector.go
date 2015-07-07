@@ -4,7 +4,7 @@ package main
 
 import (
 	"fmt"
-	"lustreserver"
+	"github.com/holgerBerger/go_ludalo/lustreserver"
 	"os"
 )
 

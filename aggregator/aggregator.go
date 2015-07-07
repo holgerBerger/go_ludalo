@@ -5,7 +5,7 @@ package main
 import (
 	"fmt"
 	"log"
-	"lustreserver"
+	"github.com/holgerBerger/go_ludalo/lustreserver"
 	"net/rpc"
 )
 
