@@ -2,7 +2,8 @@
 
 // this includes for OSS number of read and write requests and number of bytes
 // written and read
-// for MDT it delivers number of requests only.
+// for MDT it delivers total number of requests only (to be extended and precised
+// down to single requests)
 
 package lustreserver
 
@@ -15,11 +16,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+    "errors"
 	// "fmt"
 )
 
 // path to lustre proc (used for testing, should start with / for production!!)
-const Procdir = "proc/fs/lustre/"
+const Procdir = "/proc/fs/lustre/"
 
 const ostprocpath = Procdir + "obdfilter/"
 
@@ -86,18 +88,21 @@ func StartServer() {
 // GetValues RPC call for OST, return all performance counters
 func (*OssRpc) GetValues(arg int, result *OstValues) error {
 	//fmt.Printf("RPC oss\n")
+	if _, err := os.Stat(Procdir + "ost"); err == nil {
+        result.OstTotal = make(map[string]OstStats)
+        result.NidValues = make(map[string]map[string]OstStats)
 
-	result.OstTotal = make(map[string]OstStats)
-	result.NidValues = make(map[string]map[string]OstStats)
-
-	ostlist, nidSet := getOstAndNidlist()
-	for _, ost := range ostlist {
-		result.OstTotal[ost] = readOstStatfile(ostprocpath + ost + "/stats")
-		result.NidValues[ost] = make(map[string]OstStats)
-		for nid, _ := range nidSet {
-			result.NidValues[ost][nid] = readOstStatfile(ostprocpath + ost + "/exports/" + nid + "/stats")
-		}
-	}
+        ostlist, nidSet := getOstAndNidlist()
+        for _, ost := range ostlist {
+            result.OstTotal[ost] = readOstStatfile(ostprocpath + ost + "/stats")
+            result.NidValues[ost] = make(map[string]OstStats)
+            for nid, _ := range nidSet {
+                result.NidValues[ost][nid] = readOstStatfile(ostprocpath + ost + "/exports/" + nid + "/stats")
+            }
+        }
+    }else {
+        return errors.New("no ost")
+    }
 	//fmt.Printf("RPC result %v\n", result)
 	return nil
 }
@@ -105,20 +110,23 @@ func (*OssRpc) GetValues(arg int, result *OstValues) error {
 // GetValues RPC call for OST, return all performance counters
 func (*MdsRpc) GetValues(arg int, result *MdsValues) error {
 	// fmt.Printf("RPC mds\n")
+	if _, err := os.Stat(Procdir + "mds"); err == nil {
+        result.MdsTotal = make(map[string]int64)
+        result.NidValues = make(map[string]map[string]int64)
 
-	result.MdsTotal = make(map[string]int64)
-	result.NidValues = make(map[string]map[string]int64)
-
-	mdslist, nidSet := getMdtAndNidlist()
-	for _, mds := range mdslist {
-		for _, base := range realmdtprocpath {
-			result.MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/stats")
-			result.NidValues[mds] = make(map[string]int64)
-			for nid, _ := range nidSet {
-				result.NidValues[mds][nid] = readMdsStatfile(base + "/" + mds + "/exports/" + nid + "/stats")
-			}
-		}
-	}
+        mdslist, nidSet := getMdtAndNidlist()
+        for _, mds := range mdslist {
+            for _, base := range realmdtprocpath {
+                result.MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/stats")
+                result.NidValues[mds] = make(map[string]int64)
+                for nid, _ := range nidSet {
+                    result.NidValues[mds][nid] = readMdsStatfile(base + "/" + mds + "/exports/" + nid + "/stats")
+                }
+            }
+        }
+    } else {
+        return errors.New("no mdt")
+    }
 	// fmt.Printf("RPC result %v\n", result)
 	return nil
 }
