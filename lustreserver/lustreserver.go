@@ -5,6 +5,10 @@
 // for MDT it delivers total number of requests only (to be extended and precised
 // down to single requests)
 
+// TODO
+//  fix mds for differences
+//  offer difference + absolute mode
+
 package lustreserver
 
 import (
@@ -18,10 +22,11 @@ import (
 	"strings"
     "errors"
 	// "fmt"
+	"math/rand"
 )
 
 // path to lustre proc (used for testing, should start with / for production!!)
-const Procdir = "/proc/fs/lustre/"
+const Procdir = "proc/fs/lustre/"
 
 const ostprocpath = Procdir + "obdfilter/"
 
@@ -43,6 +48,11 @@ type OstValues struct {
 	NidValues map[string]map[string]OstStats
 }
 
+// new and old ostvalues to build difference
+var ostvalues[2]OstValues
+var oldpos int=0
+var newpos int=1
+
 // MdsValues contains maps with total values for each MDT and for values each nid for each MDT
 type MdsValues struct {
 	MdsTotal  map[string]int64
@@ -54,6 +64,27 @@ type OssRpc int
 
 // MDS RPC type
 type MdsRpc int64
+
+
+// subtract b from a
+func (a OstStats) sub(b OstStats) OstStats {
+	var result OstStats
+	result.W_rqs = a.W_rqs - b.W_rqs
+	result.R_rqs = a.R_rqs - b.R_rqs
+	result.W_bs = a.W_bs - b.W_bs
+	result.W_bs = a.W_bs - b.W_bs
+	return result
+}
+
+
+// check for zero
+func (a OstStats) nonzero() bool {
+	if (a.W_rqs==0) && (a.R_rqs==0) && (a.W_bs==0) && (a.R_bs==0) {
+		return false
+	} else {
+		return true
+	}
+}
 
 // Mds registers RPC server for MDS
 func MdsRPC() {
@@ -85,21 +116,70 @@ func StartServer() {
 	rpc.Accept(l)
 }
 
-// GetValues RPC call for OST, return all performance counters
-func (*OssRpc) GetValues(arg int, result *OstValues) error {
+// GetRandomValues RPC call for OST, returns random values for testing
+func (*OssRpc) GetRandomValues(init bool, result *OstValues) error {
+	    result.OstTotal = make(map[string]OstStats)
+        result.NidValues = make(map[string]map[string]OstStats)
+        
+        for i:=0; i<10; i++ {
+			ost := "OST" + strconv.Itoa(int(rand.Int63n(10)))
+			
+			t := result.OstTotal[ost]
+			t.R_bs = rand.Int63n(10)
+			t.W_bs = rand.Int63n(10)
+			t.R_rqs = rand.Int63n(100)
+			t.W_rqs = rand.Int63n(100)
+			result.OstTotal[ost] = t
+			
+			for j:=0; j<10; j++ {
+				nid := "nid" + strconv.Itoa(int(rand.Int63n(10)))
+				result.NidValues[ost] = make(map[string]OstStats)
+				t := result.NidValues[ost][nid]
+				t.R_bs = rand.Int63n(10)
+				t.W_bs = rand.Int63n(10)
+				t.R_rqs = rand.Int63n(100)
+				t.W_rqs = rand.Int63n(100)
+				result.NidValues[ost][nid] = t				
+			}
+		}
+		return nil
+}
+
+// GetValues RPC call for OST, return all performance counters which are not zero
+func (*OssRpc) GetValues(init bool, result *OstValues) error {
 	//fmt.Printf("RPC oss\n")
 	if _, err := os.Stat(Procdir + "ost"); err == nil {
-        result.OstTotal = make(map[string]OstStats)
-        result.NidValues = make(map[string]map[string]OstStats)
+        ostvalues[newpos].OstTotal = make(map[string]OstStats)
+        ostvalues[newpos].NidValues = make(map[string]map[string]OstStats)
 
         ostlist, nidSet := getOstAndNidlist()
         for _, ost := range ostlist {
-            result.OstTotal[ost] = readOstStatfile(ostprocpath + ost + "/stats")
-            result.NidValues[ost] = make(map[string]OstStats)
+            ostvalues[newpos].OstTotal[ost] = readOstStatfile(ostprocpath + ost + "/stats")
+            ostvalues[newpos].NidValues[ost] = make(map[string]OstStats)
             for nid, _ := range nidSet {
-                result.NidValues[ost][nid] = readOstStatfile(ostprocpath + ost + "/exports/" + nid + "/stats")
+                ostvalues[newpos].NidValues[ost][nid] = readOstStatfile(ostprocpath + ost + "/exports/" + nid + "/stats")
             }
         }
+        
+        if(!init) {
+			result.OstTotal = make(map[string]OstStats)
+			result.NidValues = make(map[string]map[string]OstStats)
+			
+			for _, ost := range ostlist {
+				diff := ostvalues[newpos].OstTotal[ost].sub(ostvalues[oldpos].OstTotal[ost])
+				if diff.nonzero() {
+					result.OstTotal[ost] = diff
+				}
+				for nid, _ := range nidSet {
+					diff := ostvalues[newpos].NidValues[ost][nid].sub(ostvalues[oldpos].NidValues[ost][nid])
+					if diff.nonzero() {
+						result.NidValues[ost][nid] = diff
+					}
+				}
+			}
+		}
+		newpos = (newpos+1)%2
+		oldpos = (oldpos+1)%2
     }else {
         return errors.New("no ost")
     }

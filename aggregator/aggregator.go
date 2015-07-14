@@ -23,8 +23,13 @@ func main() {
 	replyOSS.OstTotal = make(map[string]lustreserver.OstStats)
 	replyOSS.NidValues = make(map[string]map[string]lustreserver.OstStats)
 
+	err = client.Call("OssRpc.GetRandomValues", true, &replyOSS)
+	if err != nil {
+		log.Fatal("rpcerror:", err)
+	}
+	
     t1 := time.Now()
-	err = client.Call("OssRpc.GetValues", 1, &replyOSS)
+	err = client.Call("OssRpc.GetRandomValues", false, &replyOSS)
     t2 := time.Now()
 	if err != nil {
 		log.Fatal("rpcerror:", err)
@@ -38,8 +43,14 @@ func main() {
 	replyMDS.MdsTotal = make(map[string]int64)
 	replyMDS.NidValues = make(map[string]map[string]int64)
 
+/*
+	err = client.Call("MdsRpc.GetValues", true, &replyMDS)
+	if err != nil {
+		log.Fatal("rpcerror:", err)
+	}
+*/
     t1 = time.Now()
-	err = client.Call("MdsRpc.GetValues", 1, &replyMDS)
+	err = client.Call("MdsRpc.GetValues", /*false*/ 0, &replyMDS)
     t2 = time.Now()
 	if err != nil {
 		log.Fatal("rpcerror:", err)
