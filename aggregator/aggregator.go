@@ -28,8 +28,12 @@ import (
 
 
 // FIXME read data from config file
-var collectors = []string{"collector/collecto","collector/collector"}
+var collectors = []string{"collector/collector"}
 
+// FIXME read from config file
+const maxentries = 256  // max entries in channel between collector and inserter
+
+var client *rpc.Client
 
 // spawn_collectors starts collectors, retrying 10 times/max 20 seconds
 // waiting 1 second between retries
@@ -61,14 +65,34 @@ func spawn_collector(c string) {
 }
 
 
-func collect(signal chan int) {
+// collect data from collectors, and push them into channel
+// towards database inserter. The channel is buffered,
+// to limit amount of RAM used
+// FIXME: MDS Version needed
+func collect(signal chan int, inserter chan lustreserver.OstValues) {
+    var replyOSS lustreserver.OstValues 
+    //replyOSS.OstTotal = make(map[string]lustreserver.OstStats)
+	//replyOSS.NidValues = make(map[string]map[string]lustreserver.OstStats)
     for {
         fmt.Println("Waiting...")
         <-signal
         fmt.Println("Yo!")
+        err := client.Call("OssRpc.GetRandomValues", false, &replyOSS)
+        if err != nil {
+            log.Fatal("rpcerror:", err)
+        }
+        inserter <- replyOSS
     }
 }
 
+// insert data into MongoDb
+// FIXME: MDS Version needed
+func insert(inserter chan lustreserver.OstValues) {
+    for {
+        <-inserter
+        fmt.Println("received and pushing!")
+    }
+}
 
 // starts go routines to
 //  - spawn the collectors
@@ -76,7 +100,12 @@ func collect(signal chan int) {
 //  - spawn the inserters for the mongo db
 func aggrRun() {
 
-    // spawn the collectors, do not wait for them, the are endless
+    inserters := make([]chan lustreserver.OstValues, len(collectors))
+    for i,_ := range inserters {
+        inserters[i] = make(chan lustreserver.OstValues, maxentries)
+    }
+
+    // spawn the collectors on the servers, do not wait for them, they are endless
     for _,c := range collectors {
         go spawn_collector(c)
     }
@@ -86,11 +115,18 @@ func aggrRun() {
     
     // unbuffered signal channel to signal clock to collect()
     signal := make(chan int)
-    for _,_ = range collectors {
-        go collect(signal)
+    
+    // create collect goroutines to collect data and push it down the channels
+    for i,_ := range collectors {
+        go collect(signal, inserters[i])
     }    
     
-    // main loop, sending signals
+    // create inserters to pusg data into mongodb
+    for i,_ := range collectors {
+        go insert(inserters[i])
+    }
+    
+    // main loop, sending signals to collectors
     for {
         for _,_ = range collectors {
             signal <- 1
@@ -102,9 +138,11 @@ func aggrRun() {
 
 func main() {
 
-    aggrRun()
 
-	client, err := rpc.Dial("tcp", "localhost:1234")
+
+    var err error
+    
+	client, err = rpc.Dial("tcp", "localhost:1234")
 	if err != nil {
 		log.Fatal("dialing:", err)
 	}
@@ -119,7 +157,14 @@ func main() {
 	if err != nil {
 		log.Fatal("rpcerror:", err)
 	}
-	
+    
+    
+    
+	aggrRun()  /// <<<<<<<<<<<<<<<<<<<<<<<<<<
+    
+    
+    
+        
     t1 := time.Now()
 	err = client.Call("OssRpc.GetRandomValues", false, &replyOSS)
     t2 := time.Now()
