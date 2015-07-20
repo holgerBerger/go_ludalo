@@ -33,6 +33,9 @@ var collectors = []string{"collector/collector"}
 // FIXME read from config file
 const maxentries = 256  // max entries in channel between collector and inserter
 
+
+// global rpc connection used by all go routines
+// FIXME move to collect as this is per RPC server!!
 var client *rpc.Client
 
 // spawn_collectors starts collectors, retrying 10 times/max 20 seconds
@@ -54,7 +57,7 @@ func spawn_collector(c string) {
         t2 := time.Now()
         // if we restart 10 times within 20 seconds, something is strange,
         // we bail out that one, may be the config is bad, and it will
-        // never work
+        // never work, so do not waste cycles
         if count>=10 && t2.Sub(t1).Seconds() < 20 {
             fmt.Println("ERROR: could not start for 10 times, giving up on "+c)
             break
@@ -71,8 +74,8 @@ func spawn_collector(c string) {
 // FIXME: MDS Version needed
 func collect(signal chan int, inserter chan lustreserver.OstValues) {
     var replyOSS lustreserver.OstValues 
-    //replyOSS.OstTotal = make(map[string]lustreserver.OstStats)
-	//replyOSS.NidValues = make(map[string]map[string]lustreserver.OstStats)
+    //FIXME move rpc dial here
+    //FIXME do init call for RPC here
     for {
         fmt.Println("Waiting...")
         <-signal
@@ -121,7 +124,7 @@ func aggrRun() {
         go collect(signal, inserters[i])
     }    
     
-    // create inserters to pusg data into mongodb
+    // create inserters to push data into mongodb
     for i,_ := range collectors {
         go insert(inserters[i])
     }

@@ -107,7 +107,7 @@ func OssRPC() {
 
 // StartServer starts the HTTP RPC server
 func StartServer() {
-	l, e := net.Listen("tcp", "0.0.0.0:1234")
+	l, e := net.Listen("tcp", "0.0.0.0:1234") // FIXME get port from config file
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
@@ -188,6 +188,7 @@ func (*OssRpc) GetValues(init bool, result *OstValues) error {
 }
 
 // GetValues RPC call for OST, return all performance counters
+// FIXME no difference yet
 func (*MdsRpc) GetValues(arg int, result *MdsValues) error {
 	// fmt.Printf("RPC mds\n")
 	if _, err := os.Stat(Procdir + "mds"); err == nil {
