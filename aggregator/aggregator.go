@@ -59,12 +59,13 @@ func spawn_collector(c string) {
     var count int;
     count = 0
     t1 := time.Now()
-    log.Println("starting collector on "+c)
+ 
     for {
+		log.Println("starting collector on "+c)
         count++
         out, err := exec.Command("ssh", c, conf.Collector.CollectorPath).CombinedOutput()
         if err != nil {
-            log.Println("error: could not start "+c)
+            log.Println("error: unexpected end on "+c)
             log.Println(string(out))
         }
         t2 := time.Now()
@@ -87,38 +88,50 @@ func spawn_collector(c string) {
 func collect(server string, signal chan int, inserter chan lustreserver.OstValues) {
     var replyOSS lustreserver.OstValues 
     
-    // setup RPC
-    log.Print("connecting to " + server+":"+strconv.Itoa(conf.Collector.Port))
-    client, err := rpc.Dial("tcp", server+":"+strconv.Itoa(conf.Collector.Port))
-	if err != nil {
-		log.Print("dialing:", err)
-	}
-    log.Print("connected to " + server+":"+strconv.Itoa(conf.Collector.Port))
-
-    // init call for differences
-	err = client.Call("OssRpc.GetRandomValues", true, &replyOSS)
-	if err != nil {
-		log.Fatal("rpcerror:", err)
-	}
-    
     for {
-        fmt.Println("Waiting...")
-        <-signal
-        fmt.Println("Yo!")
-        err := client.Call("OssRpc.GetRandomValues", false, &replyOSS)
-        if err != nil {
-            log.Fatal("rpcerror:", err)
-        }
-        inserter <- replyOSS
-    }
+		// setup RPC
+		log.Print("connecting to " + server+":"+strconv.Itoa(conf.Collector.Port))
+		client, err := rpc.Dial("tcp", server+":"+strconv.Itoa(conf.Collector.Port))
+		if err != nil {
+			log.Print("dialing:", err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		log.Print("connected to " + server+":"+strconv.Itoa(conf.Collector.Port))
+
+		// init call for differences
+		
+		// FIXME replace random with real thing
+		err = client.Call("OssRpc.GetRandomValues", true, &replyOSS)
+		if err != nil {
+			log.Print("rpcerror:", err)
+			time.Sleep(1 * time.Second)  // wait a sec 
+			continue
+		} 
+		
+		// loop endless as long as RPC works, otherwise exit and reconnect
+		for {
+			<-signal
+			err := client.Call("OssRpc.GetRandomValues", false, &replyOSS)
+			if err != nil {
+				log.Print("rpc problems for server "+server)
+				log.Print("rpcerror:", err)
+				log.Print("trying to reconnect...")
+				time.Sleep(1 * time.Second)
+				break
+			} 
+			inserter <- replyOSS
+		}
+	}
 }
 
 // insert data into MongoDb
 // FIXME: MDS Version needed
 func insert(inserter chan lustreserver.OstValues) {
     for {
-        <-inserter
+        v := <- inserter
         fmt.Println("received and pushing!")
+        fmt.Println(v)
     }
 }
 
