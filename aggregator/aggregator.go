@@ -24,47 +24,59 @@ import (
 	"net/rpc"
     "time"
     "os/exec"
+    "github.com/BurntSushi/toml"
+    "strconv"
 )
 
 
-// FIXME read data from config file
-var collectors = []string{"collector/collector"}
+// config file definition
+type configT struct {
+    Name string
+    Collector collectorConfig
+    Database databaseConfig
+}
 
-// FIXME read from config file
-const maxentries = 256  // max entries in channel between collector and inserter
+type collectorConfig struct {
+    Hosts []string
+    CollectorPath string
+    MaxEntries int
+    Port int
+    Interval int
+}
 
+type databaseConfig struct {
+    Server string
+    Name string
+}
+// end config file definition
 
-// global rpc connection used by all go routines
-// FIXME move to collect as this is per RPC server!!
-var client *rpc.Client
+// glocal config read in main
+var conf configT
 
 // spawn_collectors starts collectors, retrying 10 times/max 20 seconds
 // waiting 1 second between retries
-// FIXME read data from config file
 func spawn_collector(c string) {
     var count int;
     count = 0
     t1 := time.Now()
-    fmt.Println("INFO: starting "+c)
+    log.Println("starting collector on "+c)
     for {
         count++
-        out, err := exec.Command(c).CombinedOutput()
+        out, err := exec.Command("ssh", c, conf.Collector.CollectorPath).CombinedOutput()
         if err != nil {
-            fmt.Println("ERROR could not start "+c)
-            fmt.Println(string(out))
-            fmt.Println("END of output")
+            log.Println("error: could not start "+c)
+            log.Println(string(out))
         }
         t2 := time.Now()
         // if we restart 10 times within 20 seconds, something is strange,
         // we bail out that one, may be the config is bad, and it will
         // never work, so do not waste cycles
         if count>=10 && t2.Sub(t1).Seconds() < 20 {
-            fmt.Println("ERROR: could not start for 10 times, giving up on "+c)
+            log.Println("error: could not start for 10 times, giving up on host "+c)
             break
         }
         time.Sleep(1 * time.Second)
     }
-    fmt.Println("INFO: ending for "+c)
 }
 
 
@@ -72,10 +84,23 @@ func spawn_collector(c string) {
 // towards database inserter. The channel is buffered,
 // to limit amount of RAM used
 // FIXME: MDS Version needed
-func collect(signal chan int, inserter chan lustreserver.OstValues) {
+func collect(server string, signal chan int, inserter chan lustreserver.OstValues) {
     var replyOSS lustreserver.OstValues 
-    //FIXME move rpc dial here
-    //FIXME do init call for RPC here
+    
+    // setup RPC
+    log.Print("connecting to " + server+":"+strconv.Itoa(conf.Collector.Port))
+    client, err := rpc.Dial("tcp", server+":"+strconv.Itoa(conf.Collector.Port))
+	if err != nil {
+		log.Print("dialing:", err)
+	}
+    log.Print("connected to " + server+":"+strconv.Itoa(conf.Collector.Port))
+
+    // init call for differences
+	err = client.Call("OssRpc.GetRandomValues", true, &replyOSS)
+	if err != nil {
+		log.Fatal("rpcerror:", err)
+	}
+    
     for {
         fmt.Println("Waiting...")
         <-signal
@@ -103,33 +128,49 @@ func insert(inserter chan lustreserver.OstValues) {
 //  - spawn the inserters for the mongo db
 func aggrRun() {
 
+    collectors := conf.Collector.Hosts
+
+    // show list of hosts
+    var hostlist string
+    for _, h := range collectors {
+        hostlist = hostlist + h
+    }
+    log.Print("hosts to start collector on: "+hostlist)
+
+    // create channels between collector and inserter go routines
     inserters := make([]chan lustreserver.OstValues, len(collectors))
     for i,_ := range inserters {
-        inserters[i] = make(chan lustreserver.OstValues, maxentries)
+        inserters[i] = make(chan lustreserver.OstValues, conf.Collector.MaxEntries)
     }
 
-    // spawn the collectors on the servers, do not wait for them, they are endless
+    // create collector processes on the servers, do not wait for them, they are endless
+    // this will not return, they will be restarted if the fail/end
     for _,c := range collectors {
         go spawn_collector(c)
     }
     
-    // wait a second to allow collectors to start
+    // wait a second to allow collectors to start 
+    // FIXME might need tuning? is 1 sec enough?
     time.Sleep(1 * time.Second)
     
     // unbuffered signal channel to signal clock to collect()
     signal := make(chan int)
     
     // create collect goroutines to collect data and push it down the channels
-    for i,_ := range collectors {
-        go collect(signal, inserters[i])
+    // towards inserters
+    for i,c := range collectors {
+        go collect(c, signal, inserters[i])
     }    
     
-    // create inserters to push data into mongodb
+    // create inserters to push data into mongodb, can be created after
+    // collectors, channels will block until read
     for i,_ := range collectors {
         go insert(inserters[i])
     }
     
     // main loop, sending signals to collectors
+    // each collector will get a signal to collect and push down the
+    // channel towards inserter
     for {
         for _,_ = range collectors {
             signal <- 1
@@ -141,33 +182,22 @@ func aggrRun() {
 
 func main() {
 
-
-
-    var err error
-    
-	client, err = rpc.Dial("tcp", "localhost:1234")
-	if err != nil {
-		log.Fatal("dialing:", err)
-	}
-
-	// OSS example
-
-	var replyOSS lustreserver.OstValues
-	//replyOSS.OstTotal = make(map[string]lustreserver.OstStats)
-	//replyOSS.NidValues = make(map[string]map[string]lustreserver.OstStats)
-
-	err = client.Call("OssRpc.GetRandomValues", true, &replyOSS)
-	if err != nil {
-		log.Fatal("rpcerror:", err)
-	}
-    
-    
-    
-	aggrRun()  /// <<<<<<<<<<<<<<<<<<<<<<<<<<
-    
-    
+    log.Print("starting ludalo aggregator")
+    if _, err := toml.DecodeFile("ludalo.config", &conf); err != nil {
+        // handle error
+        log.Print("error in reading ludalo.config:")
+        log.Fatal(err)
+    } else {
+        log.Print("config <ludalo.config> read succesfully")
+    }
     
         
+    // do work
+    // FIXME OSS only so far
+	aggrRun()  
+        
+    
+/*
     t1 := time.Now()
 	err = client.Call("OssRpc.GetRandomValues", false, &replyOSS)
     t2 := time.Now()
@@ -176,26 +206,24 @@ func main() {
 	}
 	fmt.Printf("\n%v\n", replyOSS)
     fmt.Printf("%f secs\n",t2.Sub(t1).Seconds())
+*/
 
 	// MDS example
 
-	var replyMDS lustreserver.MdsValues
-	//replyMDS.MdsTotal = make(map[string]int64)
-	//replyMDS.NidValues = make(map[string]map[string]int64)
 
-/*
+/*  var replyMDS lustreserver.MdsValues
 	err = client.Call("MdsRpc.GetValues", true, &replyMDS)
 	if err != nil {
 		log.Fatal("rpcerror:", err)
 	}
-*/
-    t1 = time.Now()
-	err = client.Call("MdsRpc.GetValues", /*false*/ 0, &replyMDS)
-    t2 = time.Now()
+	
+    t1 := time.Now()
+	err = client.Call("MdsRpc.GetValues", false, &replyMDS)
+    t2 := time.Now()
 	if err != nil {
 		log.Fatal("rpcerror:", err)
 	}
 	fmt.Printf("\n%v\n", replyMDS)
     fmt.Printf("%f secs\n",t2.Sub(t1).Seconds())
-
+*/
 }
