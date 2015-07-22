@@ -12,7 +12,7 @@
  *  block in case the inserter can not insert fast enough/for a period, so we
  *  will lack data from the collectors.
  *  Therefor time of last collection/current collection has to be taken for
- *  computing the rates, as interval might be bigger than expected
+ *  computing the rates, as the interval might be bigger than expected
  */
 
 package main
@@ -26,12 +26,13 @@ import (
     "os/exec"
     "github.com/BurntSushi/toml"
     "strconv"
+    "gopkg.in/mgo.v2"
+    "gopkg.in/mgo.v2/bson"
 )
 
 
 // config file definition
 type configT struct {
-    Name string
     Collector collectorConfig
     Database databaseConfig
 }
@@ -111,6 +112,7 @@ func collect(server string, signal chan int, inserter chan lustreserver.OstValue
 		
 		// loop endless as long as RPC works, otherwise exit and reconnect
 		for {
+			signal <- 1
 			<-signal
 			err := client.Call("OssRpc.GetRandomValues", false, &replyOSS)
 			if err != nil {
@@ -125,13 +127,34 @@ func collect(server string, signal chan int, inserter chan lustreserver.OstValue
 	}
 }
 
-// insert data into MongoDb
+// insert data into MongoDB
 // FIXME: MDS Version needed
-func insert(inserter chan lustreserver.OstValues) {
+func insert(inserter chan lustreserver.OstValues, session *mgo.Session) {
+	// mongo session
+    db := session.DB(conf.Database.Name)
+    collection := db.C("performance")
+
     for {
         v := <- inserter
         fmt.Println("received and pushing!")
-        fmt.Println(v)
+        // fmt.Println(v)
+        for ost,_ := range v.OstTotal {
+			// fmt.Print(ost+" ")
+			// fmt.Println(v.OstTotal[ost])
+			collection.Insert(bson.M{	"t":"ostt", 
+										"ost":ost, 
+										"v":v.OstTotal[ost], 
+										})
+			for nid,_ := range v.NidValues[ost] {
+				// fmt.Print(ost+" "+nid+" ")
+				// fmt.Println(v.NidValues[ost][nid])
+				collection.Insert(bson.M{	"t":"ostn", 
+										"ost":ost, 
+										"nid":nid,
+										"v":v.NidValues[ost][nid], 
+										})
+			}
+		}
     }
 }
 
@@ -139,8 +162,9 @@ func insert(inserter chan lustreserver.OstValues) {
 //  - spawn the collectors
 //  - run the central clock
 //  - spawn the inserters for the mongo db
-func aggrRun() {
-
+func aggrRun(session *mgo.Session) {
+	
+    
     collectors := conf.Collector.Hosts
 
     // show list of hosts
@@ -156,6 +180,15 @@ func aggrRun() {
         inserters[i] = make(chan lustreserver.OstValues, conf.Collector.MaxEntries)
     }
 
+	// create channels to signal to collectors
+	// a blocking channel is used
+	//   collectors sends if ready and blocks in receive
+ 	//   central timing loop selects to see if ready, and sends to those beeing ready
+    ready := make([]chan int, len(collectors))
+    for i,_ := range ready {
+        ready[i] = make(chan int)
+    }
+
     // create collector processes on the servers, do not wait for them, they are endless
     // this will not return, they will be restarted if the fail/end
     for _,c := range collectors {
@@ -165,30 +198,35 @@ func aggrRun() {
     // wait a second to allow collectors to start 
     // FIXME might need tuning? is 1 sec enough?
     time.Sleep(1 * time.Second)
-    
-    // unbuffered signal channel to signal clock to collect()
-    signal := make(chan int)
+        
+    // create inserters to push data into mongodb
+    // using Copy of session (may be Clone is better? would reuse socket)
+    for i,_ := range collectors {
+        go insert(inserters[i], session.Copy())
+    }
     
     // create collect goroutines to collect data and push it down the channels
     // towards inserters
     for i,c := range collectors {
-        go collect(c, signal, inserters[i])
+        go collect(c, ready[i], inserters[i])
     }    
     
-    // create inserters to push data into mongodb, can be created after
-    // collectors, channels will block until read
-    for i,_ := range collectors {
-        go insert(inserters[i])
-    }
-    
     // main loop, sending signals to collectors
-    // each collector will get a signal to collect and push down the
-    // channel towards inserter
+    // we check if collector was signalling readiness,
+    // if yes, we send time signal to gather information
+    // and push it into buffered channel to inserter,
+    // otherwise, we skip it in this cycle.
+    // this should never block, even if inserter channel is full.
     for {
-        for _,_ = range collectors {
-            signal <- 1
+        for i,_ := range collectors {
+			select {
+				case <- ready[i]:
+					ready[i] <- 1
+				default:
+					; // skip this one, it is busy, channel is probably filled or RPC is stuck
+			}
         } 
-        time.Sleep(1 * time.Second)       
+        time.Sleep(time.Duration(conf.Collector.Interval) * time.Second)       
     }
 }
 
@@ -203,11 +241,20 @@ func main() {
     } else {
         log.Print("config <ludalo.config> read succesfully")
     }
-    
+
+
+	// prepare mongo connection
+    session, err := mgo.Dial(conf.Database.Server)
+    if err != nil {
+		log.Fatal(err)
+	} else {
+		log.Print("connected to mongo server "+conf.Database.Server)
+	}
+
         
     // do work
     // FIXME OSS only so far
-	aggrRun()  
+	aggrRun(session)  
         
     
 /*

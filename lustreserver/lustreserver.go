@@ -7,7 +7,8 @@
 
 // TODO
 //  fix mds for differences
-//  offer difference + absolute mode
+//  offer difference + absolute mode for OST as for MDS
+//	offer inquire rpc function if mdt or ost 
 
 package lustreserver
 
@@ -50,6 +51,7 @@ type OstValues struct {
 
 // new and old ostvalues to build difference
 var ostvalues[2]OstValues
+var mdsvalues[2]MdsValues
 var oldpos int=0
 var newpos int=1
 
@@ -131,9 +133,9 @@ func (*OssRpc) GetRandomValues(init bool, result *OstValues) error {
 			t.W_rqs = rand.Int63n(100)
 			result.OstTotal[ost] = t
 			
-			for j:=0; j<10; j++ {
-				nid := "nid" + strconv.Itoa(int(rand.Int63n(10)))
-				result.NidValues[ost] = make(map[string]OstStats)
+			result.NidValues[ost] = make(map[string]OstStats)			
+			for j:=0; j<100; j++ {
+				nid := "nid" + strconv.Itoa(int(rand.Int63n(100)))
 				t := result.NidValues[ost][nid]
 				t.R_bs = rand.Int63n(10)
 				t.W_bs = rand.Int63n(10)
@@ -146,11 +148,13 @@ func (*OssRpc) GetRandomValues(init bool, result *OstValues) error {
 }
 
 // GetValues RPC call for OST, return all performance counters which are not zero
-func (*OssRpc) GetValues(init bool, result *OstValues) error {
+func (*OssRpc) GetValuesDiff(init bool, result *OstValues) error {
 	//fmt.Printf("RPC oss\n")
 	if _, err := os.Stat(Procdir + "ost"); err == nil {
-        ostvalues[newpos].OstTotal = make(map[string]OstStats)
-        ostvalues[newpos].NidValues = make(map[string]map[string]OstStats)
+		if(init) {
+			ostvalues[newpos].OstTotal = make(map[string]OstStats)
+			ostvalues[newpos].NidValues = make(map[string]map[string]OstStats)
+		}
 
         ostlist, nidSet := getOstAndNidlist()
         for _, ost := range ostlist {
@@ -186,6 +190,53 @@ func (*OssRpc) GetValues(init bool, result *OstValues) error {
 	//fmt.Printf("RPC result %v\n", result)
 	return nil
 }
+
+
+// GetValuesDiff RPC call for MDS, return counters which are not zero 
+func (*MdsRpc) GetValuesDiff(init bool, result *MdsValues) error {
+	// fmt.Printf("RPC mds\n")
+	if _, err := os.Stat(Procdir + "mds"); err == nil {
+		mdsvalues[newpos].MdsTotal = make(map[string]int64)
+		mdsvalues[newpos].NidValues = make(map[string]map[string]int64)
+
+        mdslist, nidSet := getMdtAndNidlist()
+        for _, mds := range mdslist {
+            for _, base := range realmdtprocpath {
+                mdsvalues[newpos].MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/stats")
+                mdsvalues[newpos].NidValues[mds] = make(map[string]int64)
+                for nid, _ := range nidSet {
+                    mdsvalues[newpos].NidValues[mds][nid] = readMdsStatfile(base + "/" + mds + "/exports/" + nid + "/stats")
+                }
+            }
+        }
+        
+        if(!init) {
+			result.MdsTotal = make(map[string]int64)
+			result.NidValues = make(map[string]map[string]int64)
+			
+			for _, mds := range mdslist {
+				diff := mdsvalues[newpos].MdsTotal[mds]-mdsvalues[oldpos].MdsTotal[mds]
+				if diff != 0 {
+					result.MdsTotal[mds] = diff
+				}
+				for nid, _ := range nidSet {
+					diff := mdsvalues[newpos].NidValues[mds][nid]-mdsvalues[oldpos].NidValues[mds][nid]
+					if diff != 0 {
+						result.NidValues[mds][nid] = diff
+					}
+				}
+			}
+
+		}
+    	newpos = (newpos+1)%2
+		oldpos = (oldpos+1)%2
+    } else {
+        return errors.New("no mdt")
+    }
+	// fmt.Printf("RPC result %v\n", result)
+	return nil
+}
+
 
 // GetValues RPC call for OST, return all performance counters
 // FIXME no difference yet
