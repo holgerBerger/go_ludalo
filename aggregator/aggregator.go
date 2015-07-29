@@ -134,24 +134,42 @@ func insert(inserter chan lustreserver.OstValues, session *mgo.Session) {
     db := session.DB(conf.Database.Name)
     collection := db.C("performance")
 
+	var vals[4]int;
+
     for {
         v := <- inserter
         fmt.Println("received and pushing!")
-        // fmt.Println(v)
+        fmt.Println(v)
         for ost,_ := range v.OstTotal {
 			// fmt.Print(ost+" ")
 			// fmt.Println(v.OstTotal[ost])
+			
+			// temp array to insert int array instead of struct
+			vals[0] = int(v.OstTotal[ost].W_rqs)
+			vals[1] = int(v.OstTotal[ost].W_bs)
+			vals[2] = int(v.OstTotal[ost].R_rqs)
+			vals[3] = int(v.OstTotal[ost].R_bs)
+			
+			
 			collection.Insert(bson.M{	"t":"ostt", 
 										"ost":ost, 
-										"v":v.OstTotal[ost], 
+										// "v":v.OstTotal[ost], 
+										"v":vals,
 										})
 			for nid,_ := range v.NidValues[ost] {
 				// fmt.Print(ost+" "+nid+" ")
 				// fmt.Println(v.NidValues[ost][nid])
+				
+				vals[0] = int(v.NidValues[ost][nid].W_rqs)
+				vals[1] = int(v.NidValues[ost][nid].W_bs)
+				vals[2] = int(v.NidValues[ost][nid].R_rqs)
+				vals[3] = int(v.NidValues[ost][nid].R_bs)
+				
 				collection.Insert(bson.M{	"t":"ostn", 
 										"ost":ost, 
 										"nid":nid,
-										"v":v.NidValues[ost][nid], 
+										// "v":v.NidValues[ost][nid],
+										"v":vals, 
 										})
 			}
 		}
