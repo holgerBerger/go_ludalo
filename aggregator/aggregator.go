@@ -122,11 +122,12 @@ func collect(server string, signal chan int, inserter chan lustreserver.OstValue
 
 		// loop endless as long as RPC works, otherwise exit and reconnect
 		for {
-			signal <- 1
-			<-signal
+			signal <- 1 // signal we are ready
+			<-signal    // wait for signal
+			t1 := time.Now()
 			// get timestamp and snap it to a configured interval, which allows more efficient
 			// DB access later
-			now := time.Now().Unix()
+			now := t1.Unix()
 			timestamp := (now / int64(conf.Collector.SnapInterval)) * int64(conf.Collector.SnapInterval)
 			// FIXME replace random with real thing
 			err := client.Call("OssRpcT.GetRandomValues", false, &replyOSS)
@@ -139,13 +140,16 @@ func collect(server string, signal chan int, inserter chan lustreserver.OstValue
 			}
 			replyOSS.Timestamp = timestamp
 			inserter <- replyOSS
+			t2 := time.Now()
+
+			log.Println(server, "collect cycle", t2.Sub(t1).Seconds(), "secs")
 		}
 	}
 }
 
 // insert data into MongoDB
 // FIXME: MDS Version needed
-func insert(inserter chan lustreserver.OstValues, session *mgo.Session) {
+func insert(server string, inserter chan lustreserver.OstValues, session *mgo.Session) {
 	// mongo session
 	db := session.DB(conf.Database.Name)
 	collection := db.C("performance")
@@ -155,7 +159,9 @@ func insert(inserter chan lustreserver.OstValues, session *mgo.Session) {
 	for {
 		v := <-inserter
 		// fmt.Println("received and pushing!")
-		fmt.Println(v)
+		// fmt.Println(v)
+		_ = fmt.Println
+		t1 := time.Now()
 		for ost := range v.OstTotal {
 			// temp array to insert int array instead of struct
 			vals[0] = int(v.OstTotal[ost].WRqs)
@@ -182,6 +188,8 @@ func insert(inserter chan lustreserver.OstValues, session *mgo.Session) {
 				})
 			}
 		}
+		t2 := time.Now()
+		log.Println(server, "mongo insert", t2.Sub(t1).Seconds(), "secs")
 	}
 }
 
@@ -227,8 +235,8 @@ func aggrRun(session *mgo.Session) {
 
 	// create inserters to push data into mongodb
 	// using Copy of session (may be Clone is better? would reuse socket)
-	for i := range collectors {
-		go insert(inserters[i], session.Copy())
+	for i, c := range collectors {
+		go insert(c, inserters[i], session.Copy())
 	}
 
 	// create collect goroutines to collect data and push it down the channels
