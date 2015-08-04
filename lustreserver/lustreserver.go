@@ -42,27 +42,40 @@ type OstStats struct {
 
 // OstValues contains maps with total values for each OST and for values for each nid for each OST
 type OstValues struct {
+	Timestamp int64 // will be filled by aggregator
 	OstTotal  map[string]OstStats
 	NidValues map[string]map[string]OstStats
 }
 
 // new and old ostvalues to build difference
-var ostvalues [2]OstValues
-var mdsvalues [2]MdsValues
-var oldpos int = 0
-var newpos int = 1
+var (
+	ostvalues [2]OstValues
+	mdsvalues [2]MdsValues
+	oldpos    int = 0
+	newpos    int = 1
+)
+
+// flags to show status
+var (
+	IsOST bool
+	IsMDT bool
+)
 
 // MdsValues contains maps with total values for each MDT and for values each nid for each MDT
 type MdsValues struct {
+	Timestamp int64 // will be filled by aggregator
 	MdsTotal  map[string]int64
 	NidValues map[string]map[string]int64
 }
 
-// OssRpc type
-type OssRpc int
+// ServerRpcT type, for inquiries lile server type
+type ServerRpcT int
 
-// MdsRpc type
-type MdsRpc int64
+// OssRpcT type
+type OssRpcT int
+
+// MdsRpcT type
+type MdsRpcT int64
 
 // subtract b from a
 func (a OstStats) sub(b OstStats) OstStats {
@@ -82,9 +95,15 @@ func (a OstStats) nonzero() bool {
 	return true
 }
 
-// MdsRPC registers RPC server for MDS
-func MdsRPC() {
-	mds := new(MdsRpc)
+// MakeServerRPC register RPC server for inquiries like OST/MDT
+func MakeServerRPC() {
+	server := new(ServerRpcT)
+	rpc.Register(server)
+}
+
+// MakeMdsRPC registers RPC server for MDS
+func MakeMdsRPC() {
+	mds := new(MdsRpcT)
 	rpc.Register(mds)
 	realmdtprocpath = make([]string, 1)
 	for _, mdt := range mdtprocpath {
@@ -95,9 +114,9 @@ func MdsRPC() {
 	// fmt.Printf("reallist: %v\n", realmdtprocpath)
 }
 
-// OssRPC registers RPC server for OSS
-func OssRPC() {
-	oss := new(OssRpc)
+// MakeOssRPC registers RPC server for OSS
+func MakeOssRPC() {
+	oss := new(OssRpcT)
 	rpc.Register(oss)
 }
 
@@ -112,8 +131,20 @@ func StartServer() {
 	rpc.Accept(l)
 }
 
+// IsOST RPC call returns if this is a OST
+func (*ServerRpcT) IsOST(in int, result *bool) error {
+	*result = IsOST
+	return nil
+}
+
+// IsMDT RPC call returns if this is a MDT
+func (*ServerRpcT) IsMDT(in int, result *bool) error {
+	*result = IsMDT
+	return nil
+}
+
 // GetRandomValues RPC call for OST, returns random values for testing
-func (*OssRpc) GetRandomValues(init bool, result *OstValues) error {
+func (*OssRpcT) GetRandomValues(init bool, result *OstValues) error {
 	result.OstTotal = make(map[string]OstStats)
 	result.NidValues = make(map[string]map[string]OstStats)
 
@@ -143,7 +174,7 @@ func (*OssRpc) GetRandomValues(init bool, result *OstValues) error {
 
 // GetValuesDiff RPC call for OST, return all performance counters which are not zero
 // FIXME no absolte version yet
-func (*OssRpc) GetValuesDiff(init bool, result *OstValues) error {
+func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 	//fmt.Printf("RPC oss\n")
 	if _, err := os.Stat(Procdir + "ost"); err == nil {
 		if init {
@@ -187,7 +218,7 @@ func (*OssRpc) GetValuesDiff(init bool, result *OstValues) error {
 }
 
 // GetValuesDiff RPC call for MDS, return counters which are not zero
-func (*MdsRpc) GetValuesDiff(init bool, result *MdsValues) error {
+func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 	// fmt.Printf("RPC mds\n")
 	if _, err := os.Stat(Procdir + "mds"); err == nil {
 		mdsvalues[newpos].MdsTotal = make(map[string]int64)
@@ -232,7 +263,7 @@ func (*MdsRpc) GetValuesDiff(init bool, result *MdsValues) error {
 }
 
 // GetValues RPC call for OST, return all performance counters
-func (*MdsRpc) GetValues(arg int, result *MdsValues) error {
+func (*MdsRpcT) GetValues(arg int, result *MdsValues) error {
 	// fmt.Printf("RPC mds\n")
 	if _, err := os.Stat(Procdir + "mds"); err == nil {
 		result.MdsTotal = make(map[string]int64)

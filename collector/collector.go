@@ -17,19 +17,25 @@ func main() {
 	hostname, _ := os.Hostname()
 	fmt.Printf("go collector running on " + hostname + "\n")
 
+	lustreserver.MakeServerRPC()
+
 	if _, err := os.Stat(lustreserver.Procdir + "ost"); err == nil {
 		fmt.Printf(" looks like ost, serving ost\n")
+		lustreserver.IsOST = true
 	} else {
 		fmt.Printf(" waiting for ost data\n")
+		lustreserver.IsOST = false
 	}
-	lustreserver.OssRPC()
+	lustreserver.MakeOssRPC()
 
 	if _, err := os.Stat(lustreserver.Procdir + "mds"); err == nil {
 		fmt.Printf(" looks like mdt, serving mdt\n")
+		lustreserver.IsMDT = true
 	} else {
 		fmt.Printf(" waiting for mds data\n")
+		lustreserver.IsMDT = true
 	}
-	lustreserver.MdsRPC()
+	lustreserver.MakeMdsRPC()
 
 	// here we block endless
 	lustreserver.StartServer()

@@ -43,6 +43,7 @@ type collectorConfig struct {
 	MaxEntries         int
 	Port               int
 	Interval           int
+	SnapInterval       int
 }
 
 type databaseConfig struct {
@@ -55,19 +56,20 @@ type databaseConfig struct {
 // glocal config read in main
 var conf configT
 
-// spawn_collectors starts collectors, retrying 10 times/max 20 seconds
+// spawnCollectors starts collectors, retrying 10 times/max 20 seconds
 // waiting 1 second between retries
 func spawnCollector(c string) {
 	var count int
 	count = 0
 	t1 := time.Now()
 
-	log.Println("installing collector on " + c)
+	log.Println("installing collector on " + c + " in " + conf.Collector.CollectorPath)
 	out, err := exec.Command("scp", conf.Collector.LocalcollectorPath, c+":"+conf.Collector.CollectorPath).CombinedOutput()
 	if err != nil {
 		log.Println("error: unexpected end on " + c)
 		log.Println(string(out))
 	}
+	log.Println("installed collector on " + c)
 
 	for {
 		log.Println("starting collector on " + c)
@@ -92,6 +94,8 @@ func spawnCollector(c string) {
 // collect data from collectors, and push them into channel
 // towards database inserter. The channel is buffered,
 // to limit amount of RAM used
+// we take time here, as this avoid problems with non-synchronous clocks
+// on servers and allows snapping to a certain intervals
 // FIXME: MDS Version needed
 func collect(server string, signal chan int, inserter chan lustreserver.OstValues) {
 	var replyOSS lustreserver.OstValues
@@ -108,9 +112,8 @@ func collect(server string, signal chan int, inserter chan lustreserver.OstValue
 		log.Print("connected to " + server + ":" + strconv.Itoa(conf.Collector.Port))
 
 		// init call for differences
-
 		// FIXME replace random with real thing
-		err = client.Call("OssRpc.GetRandomValues", true, &replyOSS)
+		err = client.Call("OssRpcT.GetRandomValues", true, &replyOSS)
 		if err != nil {
 			log.Print("rpcerror:", err)
 			time.Sleep(1 * time.Second) // wait a sec
@@ -121,8 +124,12 @@ func collect(server string, signal chan int, inserter chan lustreserver.OstValue
 		for {
 			signal <- 1
 			<-signal
+			// get timestamp and snap it to a configured interval, which allows more efficient
+			// DB access later
+			now := time.Now().Unix()
+			timestamp := (now / int64(conf.Collector.SnapInterval)) * int64(conf.Collector.SnapInterval)
 			// FIXME replace random with real thing
-			err := client.Call("OssRpc.GetRandomValues", false, &replyOSS)
+			err := client.Call("OssRpcT.GetRandomValues", false, &replyOSS)
 			if err != nil {
 				log.Print("rpc problems for server " + server)
 				log.Print("rpcerror:", err)
@@ -130,6 +137,7 @@ func collect(server string, signal chan int, inserter chan lustreserver.OstValue
 				time.Sleep(1 * time.Second)
 				break
 			}
+			replyOSS.Timestamp = timestamp
 			inserter <- replyOSS
 		}
 	}
@@ -146,12 +154,9 @@ func insert(inserter chan lustreserver.OstValues, session *mgo.Session) {
 
 	for {
 		v := <-inserter
-		fmt.Println("received and pushing!")
+		// fmt.Println("received and pushing!")
 		fmt.Println(v)
 		for ost := range v.OstTotal {
-			// fmt.Print(ost+" ")
-			// fmt.Println(v.OstTotal[ost])
-
 			// temp array to insert int array instead of struct
 			vals[0] = int(v.OstTotal[ost].WRqs)
 			vals[1] = int(v.OstTotal[ost].WBs)
@@ -163,15 +168,14 @@ func insert(inserter chan lustreserver.OstValues, session *mgo.Session) {
 				"v":   vals,
 			})
 			for nid := range v.NidValues[ost] {
-				// fmt.Print(ost+" "+nid+" ")
-				// fmt.Println(v.NidValues[ost][nid])
-
+				// temp array to insert int array instead of struct
 				vals[0] = int(v.NidValues[ost][nid].WRqs)
 				vals[1] = int(v.NidValues[ost][nid].WBs)
 				vals[2] = int(v.NidValues[ost][nid].RRqs)
 				vals[3] = int(v.NidValues[ost][nid].RBs)
 
-				collection.Insert(bson.M{"t": "ostn",
+				collection.Insert(bson.M{"ts": int(v.Timestamp),
+					"t":   "ostn",
 					"ost": ost,
 					"nid": nid,
 					"v":   vals,
