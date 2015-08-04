@@ -37,11 +37,12 @@ type configT struct {
 }
 
 type collectorConfig struct {
-	Hosts         []string
-	CollectorPath string
-	MaxEntries    int
-	Port          int
-	Interval      int
+	Hosts              []string
+	LocalcollectorPath string
+	CollectorPath      string
+	MaxEntries         int
+	Port               int
+	Interval           int
 }
 
 type databaseConfig struct {
@@ -56,10 +57,17 @@ var conf configT
 
 // spawn_collectors starts collectors, retrying 10 times/max 20 seconds
 // waiting 1 second between retries
-func spawn_collector(c string) {
+func spawnCollector(c string) {
 	var count int
 	count = 0
 	t1 := time.Now()
+
+	log.Println("installing collector on " + c)
+	out, err := exec.Command("scp", conf.Collector.LocalcollectorPath, c+":"+conf.Collector.CollectorPath).CombinedOutput()
+	if err != nil {
+		log.Println("error: unexpected end on " + c)
+		log.Println(string(out))
+	}
 
 	for {
 		log.Println("starting collector on " + c)
@@ -113,6 +121,7 @@ func collect(server string, signal chan int, inserter chan lustreserver.OstValue
 		for {
 			signal <- 1
 			<-signal
+			// FIXME replace random with real thing
 			err := client.Call("OssRpc.GetRandomValues", false, &replyOSS)
 			if err != nil {
 				log.Print("rpc problems for server " + server)
@@ -139,35 +148,33 @@ func insert(inserter chan lustreserver.OstValues, session *mgo.Session) {
 		v := <-inserter
 		fmt.Println("received and pushing!")
 		fmt.Println(v)
-		for ost, _ := range v.OstTotal {
+		for ost := range v.OstTotal {
 			// fmt.Print(ost+" ")
 			// fmt.Println(v.OstTotal[ost])
 
 			// temp array to insert int array instead of struct
-			vals[0] = int(v.OstTotal[ost].W_rqs)
-			vals[1] = int(v.OstTotal[ost].W_bs)
-			vals[2] = int(v.OstTotal[ost].R_rqs)
-			vals[3] = int(v.OstTotal[ost].R_bs)
+			vals[0] = int(v.OstTotal[ost].WRqs)
+			vals[1] = int(v.OstTotal[ost].WBs)
+			vals[2] = int(v.OstTotal[ost].RRqs)
+			vals[3] = int(v.OstTotal[ost].RBs)
 
 			collection.Insert(bson.M{"t": "ostt",
 				"ost": ost,
-				// "v":v.OstTotal[ost],
-				"v": vals,
+				"v":   vals,
 			})
-			for nid, _ := range v.NidValues[ost] {
+			for nid := range v.NidValues[ost] {
 				// fmt.Print(ost+" "+nid+" ")
 				// fmt.Println(v.NidValues[ost][nid])
 
-				vals[0] = int(v.NidValues[ost][nid].W_rqs)
-				vals[1] = int(v.NidValues[ost][nid].W_bs)
-				vals[2] = int(v.NidValues[ost][nid].R_rqs)
-				vals[3] = int(v.NidValues[ost][nid].R_bs)
+				vals[0] = int(v.NidValues[ost][nid].WRqs)
+				vals[1] = int(v.NidValues[ost][nid].WBs)
+				vals[2] = int(v.NidValues[ost][nid].RRqs)
+				vals[3] = int(v.NidValues[ost][nid].RBs)
 
 				collection.Insert(bson.M{"t": "ostn",
 					"ost": ost,
 					"nid": nid,
-					// "v":v.NidValues[ost][nid],
-					"v": vals,
+					"v":   vals,
 				})
 			}
 		}
@@ -191,7 +198,7 @@ func aggrRun(session *mgo.Session) {
 
 	// create channels between collector and inserter go routines
 	inserters := make([]chan lustreserver.OstValues, len(collectors))
-	for i, _ := range inserters {
+	for i := range inserters {
 		inserters[i] = make(chan lustreserver.OstValues, conf.Collector.MaxEntries)
 	}
 
@@ -200,14 +207,14 @@ func aggrRun(session *mgo.Session) {
 	//   collectors sends if ready and blocks in receive
 	//   central timing loop selects to see if ready, and sends to those beeing ready
 	ready := make([]chan int, len(collectors))
-	for i, _ := range ready {
+	for i := range ready {
 		ready[i] = make(chan int)
 	}
 
 	// create collector processes on the servers, do not wait for them, they are endless
 	// this will not return, they will be restarted if the fail/end
 	for _, c := range collectors {
-		go spawn_collector(c)
+		go spawnCollector(c)
 	}
 
 	// wait a second to allow collectors to start
@@ -216,7 +223,7 @@ func aggrRun(session *mgo.Session) {
 
 	// create inserters to push data into mongodb
 	// using Copy of session (may be Clone is better? would reuse socket)
-	for i, _ := range collectors {
+	for i := range collectors {
 		go insert(inserters[i], session.Copy())
 	}
 
@@ -233,7 +240,7 @@ func aggrRun(session *mgo.Session) {
 	// otherwise, we skip it in this cycle.
 	// this should never block, even if inserter channel is full.
 	for {
-		for i, _ := range collectors {
+		for i := range collectors {
 			select {
 			case <-ready[i]:
 				ready[i] <- 1
@@ -259,6 +266,7 @@ func main() {
 	// prepare mongo connection
 	session, err := mgo.Dial(conf.Database.Server)
 	if err != nil {
+		log.Print("could not connected to mongo server " + conf.Database.Server)
 		log.Fatal(err)
 	} else {
 		log.Print("connected to mongo server " + conf.Database.Server)

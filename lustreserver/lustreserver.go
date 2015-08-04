@@ -1,15 +1,12 @@
-// lustreserver exposes oss and mds performance counters over rpc
-
+// Package lustreserver exposes oss and mds performance counters over rpc
 // this includes for OSS number of read and write requests and number of bytes
 // written and read
 // for MDT it delivers total number of requests only (to be extended and precised
 // down to single requests)
-
 // TODO
 //  fix mds for differences
 //  offer difference + absolute mode for OST as for MDS
 //	offer inquire rpc function if mdt or ost
-
 package lustreserver
 
 import (
@@ -40,10 +37,10 @@ var realmdtprocpath = []string{}
 
 // OstStats gives write and read requests and bytes read and written
 type OstStats struct {
-	W_rqs, W_bs, R_rqs, R_bs int64
+	WRqs, WBs, RRqs, RBs int64
 }
 
-// OstValues contains maps with total values for each OST and for values each nid for each OST
+// OstValues contains maps with total values for each OST and for values for each nid for each OST
 type OstValues struct {
 	OstTotal  map[string]OstStats
 	NidValues map[string]map[string]OstStats
@@ -61,32 +58,31 @@ type MdsValues struct {
 	NidValues map[string]map[string]int64
 }
 
-// OSS RPC type
+// OssRpc type
 type OssRpc int
 
-// MDS RPC type
+// MdsRpc type
 type MdsRpc int64
 
 // subtract b from a
 func (a OstStats) sub(b OstStats) OstStats {
 	var result OstStats
-	result.W_rqs = a.W_rqs - b.W_rqs
-	result.R_rqs = a.R_rqs - b.R_rqs
-	result.W_bs = a.W_bs - b.W_bs
-	result.W_bs = a.W_bs - b.W_bs
+	result.WRqs = a.WRqs - b.WRqs
+	result.RRqs = a.RRqs - b.RRqs
+	result.WBs = a.WBs - b.WBs
+	result.WBs = a.WBs - b.WBs
 	return result
 }
 
 // check for zero
 func (a OstStats) nonzero() bool {
-	if (a.W_rqs == 0) && (a.R_rqs == 0) && (a.W_bs == 0) && (a.R_bs == 0) {
+	if (a.WRqs == 0) && (a.RRqs == 0) && (a.WBs == 0) && (a.RBs == 0) {
 		return false
-	} else {
-		return true
 	}
+	return true
 }
 
-// Mds registers RPC server for MDS
+// MdsRPC registers RPC server for MDS
 func MdsRPC() {
 	mds := new(MdsRpc)
 	rpc.Register(mds)
@@ -99,7 +95,7 @@ func MdsRPC() {
 	// fmt.Printf("reallist: %v\n", realmdtprocpath)
 }
 
-// Oss registers RPC server for OSS
+// OssRPC registers RPC server for OSS
 func OssRPC() {
 	oss := new(OssRpc)
 	rpc.Register(oss)
@@ -125,27 +121,28 @@ func (*OssRpc) GetRandomValues(init bool, result *OstValues) error {
 		ost := "OST" + strconv.Itoa(int(rand.Int63n(10)))
 
 		t := result.OstTotal[ost]
-		t.R_bs = rand.Int63n(10)
-		t.W_bs = rand.Int63n(10)
-		t.R_rqs = rand.Int63n(100)
-		t.W_rqs = rand.Int63n(100)
+		t.RBs = rand.Int63n(10)
+		t.WBs = rand.Int63n(10)
+		t.RRqs = rand.Int63n(100)
+		t.WRqs = rand.Int63n(100)
 		result.OstTotal[ost] = t
 
 		result.NidValues[ost] = make(map[string]OstStats)
 		for j := 0; j < 100; j++ {
 			nid := "nid" + strconv.Itoa(int(rand.Int63n(100)))
 			t := result.NidValues[ost][nid]
-			t.R_bs = rand.Int63n(10)
-			t.W_bs = rand.Int63n(10)
-			t.R_rqs = rand.Int63n(100)
-			t.W_rqs = rand.Int63n(100)
+			t.RBs = rand.Int63n(10)
+			t.WBs = rand.Int63n(10)
+			t.RRqs = rand.Int63n(100)
+			t.WRqs = rand.Int63n(100)
 			result.NidValues[ost][nid] = t
 		}
 	}
 	return nil
 }
 
-// GetValues RPC call for OST, return all performance counters which are not zero
+// GetValuesDiff RPC call for OST, return all performance counters which are not zero
+// FIXME no absolte version yet
 func (*OssRpc) GetValuesDiff(init bool, result *OstValues) error {
 	//fmt.Printf("RPC oss\n")
 	if _, err := os.Stat(Procdir + "ost"); err == nil {
@@ -158,7 +155,7 @@ func (*OssRpc) GetValuesDiff(init bool, result *OstValues) error {
 		for _, ost := range ostlist {
 			ostvalues[newpos].OstTotal[ost] = readOstStatfile(ostprocpath + ost + "/stats")
 			ostvalues[newpos].NidValues[ost] = make(map[string]OstStats)
-			for nid, _ := range nidSet {
+			for nid := range nidSet {
 				ostvalues[newpos].NidValues[ost][nid] = readOstStatfile(ostprocpath + ost + "/exports/" + nid + "/stats")
 			}
 		}
@@ -172,7 +169,7 @@ func (*OssRpc) GetValuesDiff(init bool, result *OstValues) error {
 				if diff.nonzero() {
 					result.OstTotal[ost] = diff
 				}
-				for nid, _ := range nidSet {
+				for nid := range nidSet {
 					diff := ostvalues[newpos].NidValues[ost][nid].sub(ostvalues[oldpos].NidValues[ost][nid])
 					if diff.nonzero() {
 						result.NidValues[ost][nid] = diff
@@ -201,7 +198,7 @@ func (*MdsRpc) GetValuesDiff(init bool, result *MdsValues) error {
 			for _, base := range realmdtprocpath {
 				mdsvalues[newpos].MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/stats")
 				mdsvalues[newpos].NidValues[mds] = make(map[string]int64)
-				for nid, _ := range nidSet {
+				for nid := range nidSet {
 					mdsvalues[newpos].NidValues[mds][nid] = readMdsStatfile(base + "/" + mds + "/exports/" + nid + "/stats")
 				}
 			}
@@ -216,7 +213,7 @@ func (*MdsRpc) GetValuesDiff(init bool, result *MdsValues) error {
 				if diff != 0 {
 					result.MdsTotal[mds] = diff
 				}
-				for nid, _ := range nidSet {
+				for nid := range nidSet {
 					diff := mdsvalues[newpos].NidValues[mds][nid] - mdsvalues[oldpos].NidValues[mds][nid]
 					if diff != 0 {
 						result.NidValues[mds][nid] = diff
@@ -235,7 +232,6 @@ func (*MdsRpc) GetValuesDiff(init bool, result *MdsValues) error {
 }
 
 // GetValues RPC call for OST, return all performance counters
-// FIXME no difference yet
 func (*MdsRpc) GetValues(arg int, result *MdsValues) error {
 	// fmt.Printf("RPC mds\n")
 	if _, err := os.Stat(Procdir + "mds"); err == nil {
@@ -247,7 +243,7 @@ func (*MdsRpc) GetValues(arg int, result *MdsValues) error {
 			for _, base := range realmdtprocpath {
 				result.MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/stats")
 				result.NidValues[mds] = make(map[string]int64)
-				for nid, _ := range nidSet {
+				for nid := range nidSet {
 					result.NidValues[mds][nid] = readMdsStatfile(base + "/" + mds + "/exports/" + nid + "/stats")
 				}
 			}
@@ -273,13 +269,13 @@ func readOstStatfile(filename string) OstStats {
 			if strings.HasPrefix(s, "read_bytes") {
 				fields := strings.Fields(s)
 				nr := len(fields)
-				stats.R_bs, _ = strconv.ParseInt(fields[nr-1], 10, 64)
-				stats.R_rqs, _ = strconv.ParseInt(fields[nr-6], 10, 64)
+				stats.RBs, _ = strconv.ParseInt(fields[nr-1], 10, 64)
+				stats.RRqs, _ = strconv.ParseInt(fields[nr-6], 10, 64)
 			} else if strings.HasPrefix(s, "write_bytes") {
 				fields := strings.Fields(s)
 				nr := len(fields)
-				stats.W_bs, _ = strconv.ParseInt(fields[nr-1], 10, 64)
-				stats.W_rqs, _ = strconv.ParseInt(fields[nr-6], 10, 64)
+				stats.WBs, _ = strconv.ParseInt(fields[nr-1], 10, 64)
+				stats.WRqs, _ = strconv.ParseInt(fields[nr-6], 10, 64)
 			}
 			line, isPrefix, err = r.ReadLine()
 		}
