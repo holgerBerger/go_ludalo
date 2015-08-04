@@ -12,8 +12,6 @@ import (
 	"os"
 )
 
-
-
 func main() {
 
 	hostname, _ := os.Hostname()
@@ -22,17 +20,17 @@ func main() {
 	if _, err := os.Stat(lustreserver.Procdir + "ost"); err == nil {
 		fmt.Printf(" looks like ost, serving ost\n")
 	} else {
-       	fmt.Printf(" waiting for ost data\n")
-    }
-    lustreserver.OssRPC()
+		fmt.Printf(" waiting for ost data\n")
+	}
+	lustreserver.OssRPC()
 
 	if _, err := os.Stat(lustreserver.Procdir + "mds"); err == nil {
 		fmt.Printf(" looks like mdt, serving mdt\n")
 	} else {
-        fmt.Printf(" waiting for mds data\n")
-    }
-    lustreserver.MdsRPC()
-    
+		fmt.Printf(" waiting for mds data\n")
+	}
+	lustreserver.MdsRPC()
+
 	// here we block endless
 	lustreserver.StartServer()
 }

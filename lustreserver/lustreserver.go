@@ -8,12 +8,13 @@
 // TODO
 //  fix mds for differences
 //  offer difference + absolute mode for OST as for MDS
-//	offer inquire rpc function if mdt or ost 
+//	offer inquire rpc function if mdt or ost
 
 package lustreserver
 
 import (
 	"bufio"
+	"errors"
 	"io/ioutil"
 	"log"
 	"net"
@@ -21,7 +22,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-    "errors"
 	// "fmt"
 	"math/rand"
 )
@@ -50,10 +50,10 @@ type OstValues struct {
 }
 
 // new and old ostvalues to build difference
-var ostvalues[2]OstValues
-var mdsvalues[2]MdsValues
-var oldpos int=0
-var newpos int=1
+var ostvalues [2]OstValues
+var mdsvalues [2]MdsValues
+var oldpos int = 0
+var newpos int = 1
 
 // MdsValues contains maps with total values for each MDT and for values each nid for each MDT
 type MdsValues struct {
@@ -67,7 +67,6 @@ type OssRpc int
 // MDS RPC type
 type MdsRpc int64
 
-
 // subtract b from a
 func (a OstStats) sub(b OstStats) OstStats {
 	var result OstStats
@@ -78,10 +77,9 @@ func (a OstStats) sub(b OstStats) OstStats {
 	return result
 }
 
-
 // check for zero
 func (a OstStats) nonzero() bool {
-	if (a.W_rqs==0) && (a.R_rqs==0) && (a.W_bs==0) && (a.R_bs==0) {
+	if (a.W_rqs == 0) && (a.R_rqs == 0) && (a.W_bs == 0) && (a.R_bs == 0) {
 		return false
 	} else {
 		return true
@@ -120,55 +118,55 @@ func StartServer() {
 
 // GetRandomValues RPC call for OST, returns random values for testing
 func (*OssRpc) GetRandomValues(init bool, result *OstValues) error {
-	    result.OstTotal = make(map[string]OstStats)
-        result.NidValues = make(map[string]map[string]OstStats)
-        
-        for i:=0; i<10; i++ {
-			ost := "OST" + strconv.Itoa(int(rand.Int63n(10)))
-			
-			t := result.OstTotal[ost]
+	result.OstTotal = make(map[string]OstStats)
+	result.NidValues = make(map[string]map[string]OstStats)
+
+	for i := 0; i < 10; i++ {
+		ost := "OST" + strconv.Itoa(int(rand.Int63n(10)))
+
+		t := result.OstTotal[ost]
+		t.R_bs = rand.Int63n(10)
+		t.W_bs = rand.Int63n(10)
+		t.R_rqs = rand.Int63n(100)
+		t.W_rqs = rand.Int63n(100)
+		result.OstTotal[ost] = t
+
+		result.NidValues[ost] = make(map[string]OstStats)
+		for j := 0; j < 100; j++ {
+			nid := "nid" + strconv.Itoa(int(rand.Int63n(100)))
+			t := result.NidValues[ost][nid]
 			t.R_bs = rand.Int63n(10)
 			t.W_bs = rand.Int63n(10)
 			t.R_rqs = rand.Int63n(100)
 			t.W_rqs = rand.Int63n(100)
-			result.OstTotal[ost] = t
-			
-			result.NidValues[ost] = make(map[string]OstStats)			
-			for j:=0; j<100; j++ {
-				nid := "nid" + strconv.Itoa(int(rand.Int63n(100)))
-				t := result.NidValues[ost][nid]
-				t.R_bs = rand.Int63n(10)
-				t.W_bs = rand.Int63n(10)
-				t.R_rqs = rand.Int63n(100)
-				t.W_rqs = rand.Int63n(100)
-				result.NidValues[ost][nid] = t				
-			}
+			result.NidValues[ost][nid] = t
 		}
-		return nil
+	}
+	return nil
 }
 
 // GetValues RPC call for OST, return all performance counters which are not zero
 func (*OssRpc) GetValuesDiff(init bool, result *OstValues) error {
 	//fmt.Printf("RPC oss\n")
 	if _, err := os.Stat(Procdir + "ost"); err == nil {
-		if(init) {
+		if init {
 			ostvalues[newpos].OstTotal = make(map[string]OstStats)
 			ostvalues[newpos].NidValues = make(map[string]map[string]OstStats)
 		}
 
-        ostlist, nidSet := getOstAndNidlist()
-        for _, ost := range ostlist {
-            ostvalues[newpos].OstTotal[ost] = readOstStatfile(ostprocpath + ost + "/stats")
-            ostvalues[newpos].NidValues[ost] = make(map[string]OstStats)
-            for nid, _ := range nidSet {
-                ostvalues[newpos].NidValues[ost][nid] = readOstStatfile(ostprocpath + ost + "/exports/" + nid + "/stats")
-            }
-        }
-        
-        if(!init) {
+		ostlist, nidSet := getOstAndNidlist()
+		for _, ost := range ostlist {
+			ostvalues[newpos].OstTotal[ost] = readOstStatfile(ostprocpath + ost + "/stats")
+			ostvalues[newpos].NidValues[ost] = make(map[string]OstStats)
+			for nid, _ := range nidSet {
+				ostvalues[newpos].NidValues[ost][nid] = readOstStatfile(ostprocpath + ost + "/exports/" + nid + "/stats")
+			}
+		}
+
+		if !init {
 			result.OstTotal = make(map[string]OstStats)
 			result.NidValues = make(map[string]map[string]OstStats)
-			
+
 			for _, ost := range ostlist {
 				diff := ostvalues[newpos].OstTotal[ost].sub(ostvalues[oldpos].OstTotal[ost])
 				if diff.nonzero() {
@@ -182,45 +180,44 @@ func (*OssRpc) GetValuesDiff(init bool, result *OstValues) error {
 				}
 			}
 		}
-		newpos = (newpos+1)%2
-		oldpos = (oldpos+1)%2
-    }else {
-        return errors.New("no ost")
-    }
+		newpos = (newpos + 1) % 2
+		oldpos = (oldpos + 1) % 2
+	} else {
+		return errors.New("no ost")
+	}
 	//fmt.Printf("RPC result %v\n", result)
 	return nil
 }
 
-
-// GetValuesDiff RPC call for MDS, return counters which are not zero 
+// GetValuesDiff RPC call for MDS, return counters which are not zero
 func (*MdsRpc) GetValuesDiff(init bool, result *MdsValues) error {
 	// fmt.Printf("RPC mds\n")
 	if _, err := os.Stat(Procdir + "mds"); err == nil {
 		mdsvalues[newpos].MdsTotal = make(map[string]int64)
 		mdsvalues[newpos].NidValues = make(map[string]map[string]int64)
 
-        mdslist, nidSet := getMdtAndNidlist()
-        for _, mds := range mdslist {
-            for _, base := range realmdtprocpath {
-                mdsvalues[newpos].MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/stats")
-                mdsvalues[newpos].NidValues[mds] = make(map[string]int64)
-                for nid, _ := range nidSet {
-                    mdsvalues[newpos].NidValues[mds][nid] = readMdsStatfile(base + "/" + mds + "/exports/" + nid + "/stats")
-                }
-            }
-        }
-        
-        if(!init) {
+		mdslist, nidSet := getMdtAndNidlist()
+		for _, mds := range mdslist {
+			for _, base := range realmdtprocpath {
+				mdsvalues[newpos].MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/stats")
+				mdsvalues[newpos].NidValues[mds] = make(map[string]int64)
+				for nid, _ := range nidSet {
+					mdsvalues[newpos].NidValues[mds][nid] = readMdsStatfile(base + "/" + mds + "/exports/" + nid + "/stats")
+				}
+			}
+		}
+
+		if !init {
 			result.MdsTotal = make(map[string]int64)
 			result.NidValues = make(map[string]map[string]int64)
-			
+
 			for _, mds := range mdslist {
-				diff := mdsvalues[newpos].MdsTotal[mds]-mdsvalues[oldpos].MdsTotal[mds]
+				diff := mdsvalues[newpos].MdsTotal[mds] - mdsvalues[oldpos].MdsTotal[mds]
 				if diff != 0 {
 					result.MdsTotal[mds] = diff
 				}
 				for nid, _ := range nidSet {
-					diff := mdsvalues[newpos].NidValues[mds][nid]-mdsvalues[oldpos].NidValues[mds][nid]
+					diff := mdsvalues[newpos].NidValues[mds][nid] - mdsvalues[oldpos].NidValues[mds][nid]
 					if diff != 0 {
 						result.NidValues[mds][nid] = diff
 					}
@@ -228,37 +225,36 @@ func (*MdsRpc) GetValuesDiff(init bool, result *MdsValues) error {
 			}
 
 		}
-    	newpos = (newpos+1)%2
-		oldpos = (oldpos+1)%2
-    } else {
-        return errors.New("no mdt")
-    }
+		newpos = (newpos + 1) % 2
+		oldpos = (oldpos + 1) % 2
+	} else {
+		return errors.New("no mdt")
+	}
 	// fmt.Printf("RPC result %v\n", result)
 	return nil
 }
-
 
 // GetValues RPC call for OST, return all performance counters
 // FIXME no difference yet
 func (*MdsRpc) GetValues(arg int, result *MdsValues) error {
 	// fmt.Printf("RPC mds\n")
 	if _, err := os.Stat(Procdir + "mds"); err == nil {
-        result.MdsTotal = make(map[string]int64)
-        result.NidValues = make(map[string]map[string]int64)
+		result.MdsTotal = make(map[string]int64)
+		result.NidValues = make(map[string]map[string]int64)
 
-        mdslist, nidSet := getMdtAndNidlist()
-        for _, mds := range mdslist {
-            for _, base := range realmdtprocpath {
-                result.MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/stats")
-                result.NidValues[mds] = make(map[string]int64)
-                for nid, _ := range nidSet {
-                    result.NidValues[mds][nid] = readMdsStatfile(base + "/" + mds + "/exports/" + nid + "/stats")
-                }
-            }
-        }
-    } else {
-        return errors.New("no mdt")
-    }
+		mdslist, nidSet := getMdtAndNidlist()
+		for _, mds := range mdslist {
+			for _, base := range realmdtprocpath {
+				result.MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/stats")
+				result.NidValues[mds] = make(map[string]int64)
+				for nid, _ := range nidSet {
+					result.NidValues[mds][nid] = readMdsStatfile(base + "/" + mds + "/exports/" + nid + "/stats")
+				}
+			}
+		}
+	} else {
+		return errors.New("no mdt")
+	}
 	// fmt.Printf("RPC result %v\n", result)
 	return nil
 }
