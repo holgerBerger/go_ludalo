@@ -24,7 +24,7 @@ import (
 )
 
 // path to lustre proc (used for testing, should start with / for production!!)
-const Procdir = "proc/fs/lustre/"
+const Procdir = "/proc/fs/lustre/"
 
 const ostprocpath = Procdir + "obdfilter/"
 
@@ -38,6 +38,13 @@ var realmdtprocpath = []string{}
 // OstStats gives write and read requests and bytes read and written
 type OstStats struct {
 	WRqs, WBs, RRqs, RBs int64
+}
+
+// MdsValues contains maps with total values for each MDT and for values each nid for each MDT
+type MdsValues struct {
+	Timestamp int64 // will be filled by aggregator
+	MdsTotal  map[string]int64
+	NidValues map[string]map[string]int64
 }
 
 // OstValues contains maps with total values for each OST and for values for each nid for each OST
@@ -60,13 +67,6 @@ var (
 	IsOST bool
 	IsMDT bool
 )
-
-// MdsValues contains maps with total values for each MDT and for values each nid for each MDT
-type MdsValues struct {
-	Timestamp int64 // will be filled by aggregator
-	MdsTotal  map[string]int64
-	NidValues map[string]map[string]int64
-}
 
 // ServerRpcT type, for inquiries lile server type
 type ServerRpcT int
@@ -178,10 +178,14 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 	//fmt.Printf("RPC oss\n")
 	if _, err := os.Stat(Procdir + "ost"); err == nil {
 		if init {
+			// we init old and new once to have both, as they cycle, otherwise panic
 			ostvalues[newpos].OstTotal = make(map[string]OstStats)
 			ostvalues[newpos].NidValues = make(map[string]map[string]OstStats)
+			ostvalues[oldpos].OstTotal = make(map[string]OstStats)
+			ostvalues[oldpos].NidValues = make(map[string]map[string]OstStats)
 		}
 
+		// get values
 		ostlist, nidSet := getOstAndNidlist()
 		for _, ost := range ostlist {
 			ostvalues[newpos].OstTotal[ost] = readOstStatfile(ostprocpath + ost + "/stats")
@@ -191,11 +195,13 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 			}
 		}
 
+		// if not init, subtract and assign return values
 		if !init {
 			result.OstTotal = make(map[string]OstStats)
 			result.NidValues = make(map[string]map[string]OstStats)
 
 			for _, ost := range ostlist {
+				result.NidValues[ost] = make(map[string]OstStats)
 				diff := ostvalues[newpos].OstTotal[ost].sub(ostvalues[oldpos].OstTotal[ost])
 				if diff.nonzero() {
 					result.OstTotal[ost] = diff
@@ -211,7 +217,7 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 		newpos = (newpos + 1) % 2
 		oldpos = (oldpos + 1) % 2
 	} else {
-		return errors.New("no ost")
+		return errors.New("this is no ost")
 	}
 	//fmt.Printf("RPC result %v\n", result)
 	return nil
