@@ -19,7 +19,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"github.com/BurntSushi/toml"
 	"github.com/holgerBerger/go_ludalo/lustreserver"
 	"gopkg.in/mgo.v2"
@@ -78,6 +77,7 @@ var (
 	hostmap hostfile
 )
 
+// global variables for timing
 var (
 	collectTimes map[string]float32
 	insertTimes  map[string]float32
@@ -207,6 +207,10 @@ func ossCollect(server string, signal chan int, inserter chan lustreserver.OstVa
 			t2 := time.Now()
 			collectTimes[server] = float32(t2.Sub(t1).Seconds())
 
+			// copy data for RPC server
+			OssData[server] = replyOSS
+
+			// push data to mongo inserter
 			inserter <- replyOSS
 
 			t3 := time.Now()
@@ -292,8 +296,6 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 
 	var vals [4]int
 
-	_ = fmt.Println
-
 	for {
 		v := <-inserter
 		// fmt.Println("received and pushing!")
@@ -376,8 +378,6 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 	collections := make(map[string]*mgo.Collection)
 
 	var vals int
-
-	_ = fmt.Println
 
 	for {
 		v := <-inserter
@@ -620,6 +620,10 @@ func main() {
 	}
 	// make session a Safe Session with error checking FIXME good idea???
 	session.SetSafe(&mgo.Safe{})
+
+	// RPC server
+	OssData = make(map[string]lustreserver.OstValues)
+	go startServer()
 
 	// do work
 	aggrRun(session)
