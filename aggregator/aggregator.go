@@ -18,6 +18,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/BurntSushi/toml"
 	"github.com/holgerBerger/go_ludalo/lustreserver"
@@ -25,19 +26,24 @@ import (
 	"gopkg.in/mgo.v2/bson"
 	"log"
 	"net/rpc"
+	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // config file definition
 type configT struct {
-	Collector collectorConfig
-	Database  databaseConfig
+	Collector  collectorConfig
+	Database   databaseConfig
+	Nidmapping nidmappingConfig
 }
 
 type collectorConfig struct {
-	Hosts              []string
+	OSS                []string
+	MDS                []string
 	LocalcollectorPath string
 	CollectorPath      string
 	MaxEntries         int
@@ -51,10 +57,66 @@ type databaseConfig struct {
 	Name   string
 }
 
+type nidmappingConfig struct {
+	Hostfile string
+	Pattern  string
+	Replace  string
+}
+
 // end config file definition
 
+// hostfile cache
+type hostfile struct {
+	ip2name map[string]string
+	re      *regexp.Regexp
+}
+
 // glocal config read in main
-var conf configT
+var (
+	conf    configT
+	hostmap hostfile
+)
+
+// readFile read hostfile as specified in config
+func (m *hostfile) readFile(filename string) {
+	m.ip2name = make(map[string]string)
+	// compile regexp once
+	re, err := regexp.Compile(conf.Nidmapping.Pattern)
+	if err != nil {
+		log.Print("could not compile regexp pattern for nid mapping from config!")
+		log.Panic(err)
+	}
+	m.re = re
+
+	// read hostfile as specified in config, ignoe empty lines and comments
+	f, err := os.Open(filename)
+	defer f.Close()
+	if err == nil {
+		r := bufio.NewReader(f)
+		line, isPrefix, err := r.ReadLine()
+		for err == nil && !isPrefix {
+			s := string(line)
+			fields := strings.Fields(s)
+			if len(fields) > 0 {
+				if !strings.HasPrefix(fields[0], "#") {
+					m.ip2name[fields[0]] = fields[1]
+					// log.Println("hostmap", fields[0], fields[1])
+				}
+			}
+			line, isPrefix, err = r.ReadLine()
+		}
+	}
+}
+
+// ip2name maps a IP address to a name with some manipulation read from config
+func (m *hostfile) mapip2name(ip string) string {
+	name, ok := m.ip2name[ip]
+	if ok {
+		return m.re.ReplaceAllString(name, conf.Nidmapping.Replace)
+	} else {
+		return ip
+	}
+}
 
 // spawnCollectors starts collectors, retrying 10 times/max 20 seconds
 // waiting 1 second between retries
@@ -112,8 +174,7 @@ func collect(server string, signal chan int, inserter chan lustreserver.OstValue
 		log.Print("connected to " + server + ":" + strconv.Itoa(conf.Collector.Port))
 
 		// init call for differences
-		// FIXME replace random with real thing
-		err = client.Call("OssRpcT.GetRandomValues", true, &replyOSS)
+		err = client.Call("OssRpcT.GetValuesDiff", true, &replyOSS)
 		if err != nil {
 			log.Print("rpcerror:", err)
 			time.Sleep(1 * time.Second) // wait a sec
@@ -129,8 +190,7 @@ func collect(server string, signal chan int, inserter chan lustreserver.OstValue
 			// DB access later
 			now := t1.Unix()
 			timestamp := (now / int64(conf.Collector.SnapInterval)) * int64(conf.Collector.SnapInterval)
-			// FIXME replace random with real thing
-			err := client.Call("OssRpcT.GetRandomValues", false, &replyOSS)
+			err := client.Call("OssRpcT.GetValuesDiff", false, &replyOSS)
 			if err != nil {
 				log.Print("rpc problems for server " + server)
 				log.Print("rpcerror:", err)
@@ -152,25 +212,40 @@ func collect(server string, signal chan int, inserter chan lustreserver.OstValue
 func insert(server string, inserter chan lustreserver.OstValues, session *mgo.Session) {
 	// mongo session
 	db := session.DB(conf.Database.Name)
-	collection := db.C("performance")
+	// cache for collections
+	collections := make(map[string]*mgo.Collection)
 
 	var vals [4]int
+
+	_ = fmt.Println
 
 	for {
 		v := <-inserter
 		// fmt.Println("received and pushing!")
 		// fmt.Println(v)
-		_ = fmt.Println
 		t1 := time.Now()
 		for ost := range v.OstTotal {
+			// ost contains FS name in form FS-OST
+			names := strings.Split(ost, "-")
+			fsname := names[0]
+			ostname := names[1]
+			// we cache mongo collections here, not created each time
+			_, ok := collections[fsname]
+			if !ok {
+				collections[fsname] = db.C(fsname)
+			}
+			collection := collections[fsname]
+
 			// temp array to insert int array instead of struct
 			vals[0] = int(v.OstTotal[ost].WRqs)
 			vals[1] = int(v.OstTotal[ost].WBs)
 			vals[2] = int(v.OstTotal[ost].RRqs)
 			vals[3] = int(v.OstTotal[ost].RBs)
 
-			collection.Insert(bson.M{"t": "ostt",
-				"ost": ost,
+			// insert aggregate data for OST
+			collection.Insert(bson.M{"ts": int(v.Timestamp),
+				"ost": ostname,
+				"nid": "aggr",
 				"v":   vals,
 			})
 			for nid := range v.NidValues[ost] {
@@ -180,10 +255,16 @@ func insert(server string, inserter chan lustreserver.OstValues, session *mgo.Se
 				vals[2] = int(v.NidValues[ost][nid].RRqs)
 				vals[3] = int(v.NidValues[ost][nid].RBs)
 
+				// NID name translation, splitting at @ + IP resolution in case of IP address
+				nidname := strings.Split(nid, "@")[0]
+				// if it is IP address, map with rules from config e.g. to remove -ib postfix
+				if strings.ContainsAny(nidname, ".") {
+					nidname = hostmap.mapip2name(nidname)
+				}
+
 				collection.Insert(bson.M{"ts": int(v.Timestamp),
-					"t":   "ostn",
-					"ost": ost,
-					"nid": nid,
+					"ost": ostname,
+					"nid": nidname,
 					"v":   vals,
 				})
 			}
@@ -199,7 +280,7 @@ func insert(server string, inserter chan lustreserver.OstValues, session *mgo.Se
 //  - spawn the inserters for the mongo db
 func aggrRun(session *mgo.Session) {
 
-	collectors := conf.Collector.Hosts
+	collectors := conf.Collector.OSS
 
 	// show list of hosts
 	var hostlist string
@@ -231,7 +312,7 @@ func aggrRun(session *mgo.Session) {
 
 	// wait a second to allow collectors to start
 	// FIXME might need tuning? is 1 sec enough?
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	// create inserters to push data into mongodb
 	// using Copy of session (may be Clone is better? would reuse socket)
@@ -274,6 +355,9 @@ func main() {
 	} else {
 		log.Print("config <ludalo.config> read succesfully")
 	}
+
+	// hostmapping
+	hostmap.readFile(conf.Nidmapping.Hostfile)
 
 	// prepare mongo connection
 	session, err := mgo.Dial(conf.Database.Server)
