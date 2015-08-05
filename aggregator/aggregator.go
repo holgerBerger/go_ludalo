@@ -24,6 +24,7 @@ import (
 	"github.com/holgerBerger/go_ludalo/lustreserver"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+	"io"
 	"log"
 	"net/rpc"
 	"os"
@@ -75,6 +76,11 @@ type hostfile struct {
 var (
 	conf    configT
 	hostmap hostfile
+)
+
+var (
+	collectTimes map[string]float32
+	insertTimes  map[string]float32
 )
 
 // readFile read hostfile as specified in config
@@ -197,11 +203,20 @@ func ossCollect(server string, signal chan int, inserter chan lustreserver.OstVa
 				time.Sleep(1 * time.Second)
 				break
 			}
-			replyOSS.Timestamp = timestamp
-			inserter <- replyOSS
+			replyOSS.Timestamp = int32(timestamp)
 			t2 := time.Now()
+			collectTimes[server] = float32(t2.Sub(t1).Seconds())
 
-			log.Println(server, "collect cycle", t2.Sub(t1).Seconds(), "secs")
+			inserter <- replyOSS
+
+			t3 := time.Now()
+
+			if int(t3.Sub(t1).Seconds()) > conf.Collector.Interval {
+				log.Println("WARNING: for", server, "cycle is exceeding interval by",
+					int(t3.Sub(t1).Seconds())-conf.Collector.Interval, "secs")
+			}
+
+			// log.Println(server, "collect cycle", t2.Sub(t1).Seconds(), "secs")
 		}
 	}
 }
@@ -250,11 +265,20 @@ func mdsCollect(server string, signal chan int, inserter chan lustreserver.MdsVa
 				time.Sleep(1 * time.Second)
 				break
 			}
-			replyMDS.Timestamp = timestamp
-			inserter <- replyMDS
+			replyMDS.Timestamp = int32(timestamp)
 			t2 := time.Now()
+			collectTimes[server] = float32(t2.Sub(t1).Seconds())
 
-			log.Println(server, "collect cycle", t2.Sub(t1).Seconds(), "secs")
+			inserter <- replyMDS
+
+			t3 := time.Now()
+
+			if int(t3.Sub(t1).Seconds()) > conf.Collector.Interval {
+				log.Println("WARNING: for", server, "cycle is exceeding interval by",
+					int(t3.Sub(t1).Seconds())-conf.Collector.Interval, "secs")
+			}
+
+			// log.Println(server, "collect cycle", t2.Sub(t1).Seconds(), "secs")
 		}
 	}
 }
@@ -294,11 +318,20 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 			vals[3] = int(v.OstTotal[ost].RBs)
 
 			// insert aggregate data for OST
-			collection.Insert(bson.M{"ts": int(v.Timestamp),
+			err := collection.Insert(bson.M{"ts": int(v.Timestamp),
 				"ost": ostname,
 				"nid": "aggr",
 				"v":   vals,
+				"dt":  v.Delta,
 			})
+			if err != nil {
+				log.Println("WARNING: insert error in ossInsert for", server)
+				log.Println(err)
+			}
+			if err == io.EOF {
+				session.Refresh()
+			}
+
 			for nid := range v.NidValues[ost] {
 				// temp array to insert int array instead of struct
 				vals[0] = int(v.NidValues[ost][nid].WRqs)
@@ -313,15 +346,25 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 					nidname = hostmap.mapip2name(nidname)
 				}
 
-				collection.Insert(bson.M{"ts": int(v.Timestamp),
+				err := collection.Insert(bson.M{"ts": int(v.Timestamp),
 					"ost": ostname,
 					"nid": nidname,
 					"v":   vals,
+					"dt":  v.Delta,
 				})
+				if err != nil {
+					log.Println("WARNING: insert error in ossInsert for", server)
+					log.Println(err)
+				}
+				if err == io.EOF {
+					session.Refresh()
+				}
 			}
 		}
 		t2 := time.Now()
-		log.Println(server, "mongo insert", t2.Sub(t1).Seconds(), "secs")
+
+		insertTimes[server] = float32(t2.Sub(t1).Seconds())
+		// log.Println(server, "mongo insert", t2.Sub(t1).Seconds(), "secs")
 	}
 }
 
@@ -357,11 +400,19 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 			vals = int(v.MdsTotal[mdt])
 
 			// insert aggregate data for OST
-			collection.Insert(bson.M{"ts": int(v.Timestamp),
+			err := collection.Insert(bson.M{"ts": int(v.Timestamp),
 				"mdt": mdtname,
 				"nid": "aggr",
 				"v":   vals,
+				"dt":  v.Delta,
 			})
+			if err != nil {
+				log.Println("WARNING: insert error in mdsInsert for", server)
+				log.Println(err)
+			}
+			if err == io.EOF {
+				session.Refresh()
+			}
 			for nid := range v.NidValues[mdt] {
 				// temp array to insert int array instead of struct
 				vals = int(v.NidValues[mdt][nid])
@@ -373,15 +424,25 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 					nidname = hostmap.mapip2name(nidname)
 				}
 
-				collection.Insert(bson.M{"ts": int(v.Timestamp),
+				err := collection.Insert(bson.M{"ts": int(v.Timestamp),
 					"mdt": mdtname,
 					"nid": nidname,
 					"v":   vals,
+					"dt":  v.Delta,
 				})
+				if err != nil {
+					log.Println("WARNING: insert error in mdsInsert for", server)
+					log.Println(err)
+				}
+				if err == io.EOF {
+					session.Refresh()
+				}
 			}
 		}
 		t2 := time.Now()
-		log.Println(server, "mongo insert", t2.Sub(t1).Seconds(), "secs")
+
+		insertTimes[server] = float32(t2.Sub(t1).Seconds())
+		// log.Println(server, "mongo insert", t2.Sub(t1).Seconds(), "secs")
 	}
 }
 
@@ -398,13 +459,13 @@ func aggrRun(session *mgo.Session) {
 	// show list of hosts
 	var hostlist string
 	for _, h := range ossCollectors {
-		hostlist = hostlist + h
+		hostlist = hostlist + " " + h
 	}
 	log.Print("hosts to start OSS collector on: " + hostlist)
 
 	hostlist = ""
 	for _, h := range mdsCollectors {
-		hostlist = hostlist + h
+		hostlist = hostlist + " " + h
 	}
 	log.Print("hosts to start MDS collector on: " + hostlist)
 
@@ -461,12 +522,16 @@ func aggrRun(session *mgo.Session) {
 		go mdsCollect(c, ready[c], mdsInserters[i])
 	}
 
-	// main loop, sending signals to collectors
+	collectTimes = make(map[string]float32)
+	insertTimes = make(map[string]float32)
+	/////////////////////////////////////////////////////////////////////////
+	// MAIN LOOP, sending signals to collectors
 	// we check if collector was signalling readiness,
 	// if yes, we send time signal to gather information
 	// and push it into buffered channel to inserter,
 	// otherwise, we skip it in this cycle.
 	// this should never block, even if inserter channel is full.
+	/////////////////////////////////////////////////////////////////////////
 	for {
 		for _, o := range ossCollectors {
 			select {
@@ -485,7 +550,49 @@ func aggrRun(session *mgo.Session) {
 			}
 		}
 		time.Sleep(time.Duration(conf.Collector.Interval) * time.Second)
+		Timing()
 	}
+}
+
+// print times of go routines doing collection and insertion
+func Timing() {
+	// timing
+	var (
+		max, avg float32
+		maxs     string
+		count    int
+	)
+
+	log.Print("Cycle timings:")
+	max = 0.0
+	avg = 0.0
+	count = 0
+	for s, v := range collectTimes {
+		if v > max {
+			maxs = s
+			max = v
+		}
+		avg += v
+		if v != 0.0 {
+			count++
+		}
+	}
+	log.Printf(" collect : max %5.3f(%s) avg %5.3f secs", max, maxs, avg/float32(count))
+
+	max = 0.0
+	avg = 0.0
+	count = 0
+	for s, v := range insertTimes {
+		if v > max {
+			maxs = s
+			max = v
+		}
+		avg += v
+		if v != 0.0 {
+			count++
+		}
+	}
+	log.Printf(" insert  : max %5.3f(%s) avg %5.3f secs", max, maxs, avg/float32(count))
 }
 
 //////////////////////////////////////////////////////
@@ -511,6 +618,8 @@ func main() {
 	} else {
 		log.Print("connected to mongo server " + conf.Database.Server)
 	}
+	// make session a Safe Session with error checking FIXME good idea???
+	session.SetSafe(&mgo.Safe{})
 
 	// do work
 	aggrRun(session)

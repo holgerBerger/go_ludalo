@@ -21,6 +21,7 @@ import (
 	"strings"
 	// "fmt"
 	"math/rand"
+	"time"
 )
 
 // path to lustre proc (used for testing, should start with / for production!!)
@@ -42,14 +43,16 @@ type OstStats struct {
 
 // MdsValues contains maps with total values for each MDT and for values each nid for each MDT
 type MdsValues struct {
-	Timestamp int64 // will be filled by aggregator
+	Timestamp int32 // will be filled by aggregator and is used to transfer difference
+	Delta     int32 // time difference
 	MdsTotal  map[string]int64
 	NidValues map[string]map[string]int64
 }
 
 // OstValues contains maps with total values for each OST and for values for each nid for each OST
 type OstValues struct {
-	Timestamp int64 // will be filled by aggregator
+	Timestamp int32 // will be filled by aggregator
+	Delta     int32 // time difference
 	OstTotal  map[string]OstStats
 	NidValues map[string]map[string]OstStats
 }
@@ -176,6 +179,7 @@ func (*OssRpcT) GetRandomValues(init bool, result *OstValues) error {
 // FIXME no absolte version yet
 func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 	//fmt.Printf("RPC oss\n")
+	var last time.Time
 	if _, err := os.Stat(Procdir + "ost"); err == nil {
 		if init {
 			// we init old and new once to have both, as they cycle, otherwise panic
@@ -186,6 +190,7 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 		}
 
 		// get values
+		now := time.Now()
 		ostlist, nidSet := getOstAndNidlist()
 		for _, ost := range ostlist {
 			ostvalues[newpos].OstTotal[ost] = readOstStatfile(ostprocpath + ost + "/stats")
@@ -205,17 +210,19 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 				diff := ostvalues[newpos].OstTotal[ost].sub(ostvalues[oldpos].OstTotal[ost])
 				if diff.nonzero() {
 					result.OstTotal[ost] = diff
-				}
-				for nid := range nidSet {
-					diff := ostvalues[newpos].NidValues[ost][nid].sub(ostvalues[oldpos].NidValues[ost][nid])
-					if diff.nonzero() {
-						result.NidValues[ost][nid] = diff
+					result.Delta = int32(now.Sub(last).Seconds())
+					for nid := range nidSet {
+						diff := ostvalues[newpos].NidValues[ost][nid].sub(ostvalues[oldpos].NidValues[ost][nid])
+						if diff.nonzero() {
+							result.NidValues[ost][nid] = diff
+						}
 					}
 				}
 			}
 		}
 		newpos = (newpos + 1) % 2
 		oldpos = (oldpos + 1) % 2
+		last = now
 	} else {
 		return errors.New("this is no ost")
 	}
@@ -226,6 +233,7 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 // GetValuesDiff RPC call for MDS, return counters which are not zero
 func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 	// fmt.Printf("RPC mds\n")
+	var last time.Time
 	if _, err := os.Stat(Procdir + "mds"); err == nil {
 		if init {
 			mdsvalues[newpos].MdsTotal = make(map[string]int64)
@@ -234,6 +242,7 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 			mdsvalues[oldpos].NidValues = make(map[string]map[string]int64)
 		}
 
+		now := time.Now()
 		mdslist, nidSet := getMdtAndNidlist()
 		for _, mds := range mdslist {
 			for _, base := range realmdtprocpath {
@@ -255,11 +264,12 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 				diff := mdsvalues[newpos].MdsTotal[mds] - mdsvalues[oldpos].MdsTotal[mds]
 				if diff != 0 {
 					result.MdsTotal[mds] = diff
-				}
-				for nid := range nidSet {
-					diff := mdsvalues[newpos].NidValues[mds][nid] - mdsvalues[oldpos].NidValues[mds][nid]
-					if diff != 0 {
-						result.NidValues[mds][nid] = diff
+					result.Delta = int32(now.Sub(last).Seconds())
+					for nid := range nidSet {
+						diff := mdsvalues[newpos].NidValues[mds][nid] - mdsvalues[oldpos].NidValues[mds][nid]
+						if diff != 0 {
+							result.NidValues[mds][nid] = diff
+						}
 					}
 				}
 			}
@@ -267,6 +277,7 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 		}
 		newpos = (newpos + 1) % 2
 		oldpos = (oldpos + 1) % 2
+		last = now
 	} else {
 		return errors.New("no mdt")
 	}
