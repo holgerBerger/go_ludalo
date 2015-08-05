@@ -227,13 +227,18 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 	// fmt.Printf("RPC mds\n")
 	if _, err := os.Stat(Procdir + "mds"); err == nil {
-		mdsvalues[newpos].MdsTotal = make(map[string]int64)
-		mdsvalues[newpos].NidValues = make(map[string]map[string]int64)
+		if init {
+			mdsvalues[newpos].MdsTotal = make(map[string]int64)
+			mdsvalues[newpos].NidValues = make(map[string]map[string]int64)
+			mdsvalues[oldpos].MdsTotal = make(map[string]int64)
+			mdsvalues[oldpos].NidValues = make(map[string]map[string]int64)
+		}
 
 		mdslist, nidSet := getMdtAndNidlist()
 		for _, mds := range mdslist {
 			for _, base := range realmdtprocpath {
-				mdsvalues[newpos].MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/stats")
+				// FIXME md_stats since when?? lustre 2.X ?
+				mdsvalues[newpos].MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/md_stats")
 				mdsvalues[newpos].NidValues[mds] = make(map[string]int64)
 				for nid := range nidSet {
 					mdsvalues[newpos].NidValues[mds][nid] = readMdsStatfile(base + "/" + mds + "/exports/" + nid + "/stats")
@@ -246,6 +251,7 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 			result.NidValues = make(map[string]map[string]int64)
 
 			for _, mds := range mdslist {
+				result.NidValues[mds] = make(map[string]int64)
 				diff := mdsvalues[newpos].MdsTotal[mds] - mdsvalues[oldpos].MdsTotal[mds]
 				if diff != 0 {
 					result.MdsTotal[mds] = diff
