@@ -257,14 +257,14 @@ func mdsCollect(server string, signal chan int, inserter chan lustreserver.MdsVa
 
 	for {
 		// setup RPC
-		log.Print("connecting to " + server + ":" + strconv.Itoa(conf.Collector.Port))
+		log.Print("connecting RPC to " + server + ":" + strconv.Itoa(conf.Collector.Port))
 		client, err := rpc.Dial("tcp", server+":"+strconv.Itoa(conf.Collector.Port))
 		if err != nil {
 			log.Print("dialing:", err)
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		log.Print("connected to " + server + ":" + strconv.Itoa(conf.Collector.Port))
+		log.Print("connected RPC to " + server + ":" + strconv.Itoa(conf.Collector.Port))
 
 		// init call for differences
 		err = client.Call("MdsRpcT.GetValuesDiff", true, &replyMDS)
