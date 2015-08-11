@@ -187,7 +187,7 @@ func (*OssRpcT) GetRandomValues(init bool, result *OstValues) error {
 // FIXME no absolute version yet
 func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 	//fmt.Printf("RPC oss\n")
-	var last int64
+	var last, now int32
 	if _, err := os.Stat(Procdir + "ost"); err == nil {
 		if init {
 			// we init old and new once to have both, as they cycle, otherwise panic
@@ -195,10 +195,12 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 			ostvalues[newpos].NidValues = make(map[string]map[string]OstStats)
 			ostvalues[oldpos].OstTotal = make(map[string]OstStats)
 			ostvalues[oldpos].NidValues = make(map[string]map[string]OstStats)
+			ostvalues[oldpos].Timestamp = int32(time.Now().Unix())
 		}
 
 		// get values
-		now := time.Now().Unix()
+		now = int32(time.Now().Unix())
+		ostvalues[newpos].Timestamp = int32(now)
 		ostlist, nidSet := getOstAndNidlist()
 		for _, ost := range ostlist {
 			ostvalues[newpos].OstTotal[ost] = readOstStatfile(ostprocpath + ost + "/stats")
@@ -227,6 +229,7 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 				diff := ostvalues[newpos].OstTotal[ost].sub(ostvalues[oldpos].OstTotal[ost])
 				if diff.nonzero() && diff.positive() {
 					result.OstTotal[ost] = diff
+					last = ostvalues[oldpos].Timestamp
 					result.Delta = int32(now - last)
 					for nid := range nidSet {
 						_, ok := (ostvalues[oldpos].NidValues[ost][nid])
@@ -244,7 +247,6 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 		}
 		newpos = (newpos + 1) % 2
 		oldpos = (oldpos + 1) % 2
-		last = now
 	} else {
 		return errors.New("this is no ost")
 	}
@@ -255,16 +257,18 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 // GetValuesDiff RPC call for MDS, return counters which are not zero
 func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 	// fmt.Printf("RPC mds\n")
-	var last int64
+	var last, now int32
 	if _, err := os.Stat(Procdir + "mds"); err == nil {
 		if init {
 			mdsvalues[newpos].MdsTotal = make(map[string]int64)
 			mdsvalues[newpos].NidValues = make(map[string]map[string]int64)
 			mdsvalues[oldpos].MdsTotal = make(map[string]int64)
 			mdsvalues[oldpos].NidValues = make(map[string]map[string]int64)
+			mdsvalues[oldpos].Timestamp = int32(time.Now().Unix())
 		}
 
-		now := time.Now().Unix()
+		now = int32(time.Now().Unix())
+		mdsvalues[newpos].Timestamp = int32(now)
 		mdslist, nidSet := getMdtAndNidlist()
 		for _, mds := range mdslist {
 			for _, base := range realmdtprocpath {
@@ -293,6 +297,7 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 				diff := mdsvalues[newpos].MdsTotal[mds] - mdsvalues[oldpos].MdsTotal[mds]
 				if diff > 0 {
 					result.MdsTotal[mds] = diff
+					last = mdsvalues[oldpos].Timestamp
 					result.Delta = int32(now - last)
 					for nid := range nidSet {
 						_, ok := mdsvalues[oldpos].NidValues[mds][nid]
