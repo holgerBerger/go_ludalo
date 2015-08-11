@@ -129,20 +129,34 @@ func (m *hostfile) mapip2name(ip string) string {
 func spawnCollector(c string) {
 	var count int
 	count = 0
-	t1 := time.Now()
 
-	log.Println("installing collector on " + c + " in " + conf.Collector.CollectorPath)
-	out, err := exec.Command("scp", conf.Collector.LocalcollectorPath, c+":"+conf.Collector.CollectorPath).CombinedOutput()
-	if err != nil {
-		log.Println("error: unexpected end on " + c)
-		log.Println(string(out))
+	// compare sha224 of local and remote collector, and skip installation if same,
+	// install if anything goes wrong (like not existing)
+	out, lerr := exec.Command("sha224sum", conf.Collector.LocalcollectorPath).CombinedOutput()
+	localsha := strings.Fields(string(out))[0]
+	out, rerr := exec.Command("ssh", c, "sha224sum", conf.Collector.CollectorPath).CombinedOutput()
+	remotesha := strings.Fields(string(out))[0]
+
+	if (localsha != remotesha) || (lerr != nil) || (rerr != nil) {
+		log.Println("installing collector on " + c + " in " + conf.Collector.CollectorPath)
+		out, err := exec.Command("scp", conf.Collector.LocalcollectorPath, c+":"+conf.Collector.CollectorPath).CombinedOutput()
+		if err != nil {
+			log.Println("error: unexpected end on " + c)
+			log.Println(string(out))
+		}
+		log.Println("installed collector on " + c)
+	} else {
+		log.Println("same hash, skipped collector installation on", c)
 	}
-	log.Println("installed collector on " + c)
 
+	t1 := time.Now()
 	for {
+		// kill runnning processes in case there is one
+		out, err := exec.Command("ssh", c, "killall", "-e", conf.Collector.CollectorPath).CombinedOutput()
+
 		log.Println("starting collector on " + c)
 		count++
-		out, err := exec.Command("ssh", c, conf.Collector.CollectorPath).CombinedOutput()
+		out, err = exec.Command("ssh", c, conf.Collector.CollectorPath).CombinedOutput()
 		if err != nil {
 			log.Println("error: unexpected end on " + c)
 			log.Println(string(out))
@@ -169,14 +183,14 @@ func ossCollect(server string, signal chan int, inserter chan lustreserver.OstVa
 
 	for {
 		// setup RPC
-		log.Print("connecting to " + server + ":" + strconv.Itoa(conf.Collector.Port))
+		log.Print("connecting RPC to " + server + ":" + strconv.Itoa(conf.Collector.Port))
 		client, err := rpc.Dial("tcp", server+":"+strconv.Itoa(conf.Collector.Port))
 		if err != nil {
 			log.Print("dialing:", err)
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		log.Print("connected to " + server + ":" + strconv.Itoa(conf.Collector.Port))
+		log.Print("connected RPC to " + server + ":" + strconv.Itoa(conf.Collector.Port))
 
 		// init call for differences
 		err = client.Call("OssRpcT.GetValuesDiff", true, &replyOSS)
