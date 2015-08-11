@@ -79,8 +79,10 @@ var (
 
 // global variables for timing
 var (
-	collectTimes map[string]float32
-	insertTimes  map[string]float32
+	collectTimes   map[string]float32
+	insertTimes    map[string]float32
+	insertMDSItems map[string]int32
+	insertOSSItems map[string]int32
 )
 
 // readFile read hostfile as specified in config
@@ -317,11 +319,13 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 	collections := make(map[string]*mgo.Collection)
 
 	var vals [4]int
+	var insertItems int32
 
 	for {
 		v := <-inserter
 		// fmt.Println("received and pushing!")
 		// fmt.Println(v)
+		insertItems = 0
 		t1 := time.Now()
 		for ost := range v.OstTotal {
 			// ost contains FS name in form FS-OST
@@ -342,6 +346,7 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 			vals[3] = int(v.OstTotal[ost].RBs)
 
 			// insert aggregate data for OST
+			insertItems++
 			err := collection.Insert(bson.M{"ts": int(v.Timestamp),
 				"ost": ostname,
 				"nid": "aggr",
@@ -370,6 +375,7 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 					nidname = hostmap.mapip2name(nidname)
 				}
 
+				insertItems++
 				err := collection.Insert(bson.M{"ts": int(v.Timestamp),
 					"ost": ostname,
 					"nid": nidname,
@@ -388,6 +394,7 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 		t2 := time.Now()
 
 		insertTimes[server] = float32(t2.Sub(t1).Seconds())
+		insertOSSItems[server] = insertItems
 		// log.Println(server, "mongo insert", t2.Sub(t1).Seconds(), "secs")
 	}
 }
@@ -400,11 +407,13 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 	collections := make(map[string]*mgo.Collection)
 
 	var vals int
+	var insertItems int32
 
 	for {
 		v := <-inserter
 		// fmt.Println("received and pushing!")
 		// fmt.Println(v)
+		insertItems = 0
 		t1 := time.Now()
 		for mdt := range v.MdsTotal {
 			// mdt contains FS name in form FS-OST
@@ -422,6 +431,7 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 			vals = int(v.MdsTotal[mdt])
 
 			// insert aggregate data for OST
+			insertItems++
 			err := collection.Insert(bson.M{"ts": int(v.Timestamp),
 				"mdt": mdtname,
 				"nid": "aggr",
@@ -446,6 +456,7 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 					nidname = hostmap.mapip2name(nidname)
 				}
 
+				insertItems++
 				err := collection.Insert(bson.M{"ts": int(v.Timestamp),
 					"mdt": mdtname,
 					"nid": nidname,
@@ -464,6 +475,7 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 		t2 := time.Now()
 
 		insertTimes[server] = float32(t2.Sub(t1).Seconds())
+		insertMDSItems[server] = insertItems
 		// log.Println(server, "mongo insert", t2.Sub(t1).Seconds(), "secs")
 	}
 }
@@ -523,7 +535,7 @@ func aggrRun(session *mgo.Session) {
 	}
 
 	// wait a second to allow collectors to start
-	// FIXME might need tuning? is 1 sec enough?
+	// FIXME might need tuning? is 5 sec enough?
 	time.Sleep(5 * time.Second)
 
 	// create inserters to push data into mongodb
@@ -544,8 +556,6 @@ func aggrRun(session *mgo.Session) {
 		go mdsCollect(c, ready[c], mdsInserters[i])
 	}
 
-	collectTimes = make(map[string]float32)
-	insertTimes = make(map[string]float32)
 	/////////////////////////////////////////////////////////////////////////
 	// MAIN LOOP, sending signals to collectors
 	// we check if collector was signalling readiness,
@@ -554,6 +564,10 @@ func aggrRun(session *mgo.Session) {
 	// otherwise, we skip it in this cycle.
 	// this should never block, even if inserter channel is full.
 	/////////////////////////////////////////////////////////////////////////
+	collectTimes = make(map[string]float32)
+	insertTimes = make(map[string]float32)
+	insertMDSItems = make(map[string]int32)
+	insertOSSItems = make(map[string]int32)
 	for {
 		for _, o := range ossCollectors {
 			select {
@@ -573,7 +587,30 @@ func aggrRun(session *mgo.Session) {
 		}
 		time.Sleep(time.Duration(conf.Collector.Interval) * time.Second)
 		Timing()
+		Statistics()
 	}
+}
+
+// print Statistics of Mongo inserts, does not reflect server activity but #client activity
+func Statistics() {
+	log.Print("Cycle statistics:")
+	var (
+		mdstotal int32
+		osstotal int32
+	)
+
+	mdstotal = 0
+	osstotal = 0
+
+	for _, v := range insertMDSItems {
+		mdstotal += v
+	}
+	log.Println(" active mds nids:", mdstotal)
+
+	for _, v := range insertOSSItems {
+		osstotal += v
+	}
+	log.Println(" active oss nids:", osstotal)
 }
 
 // print times of go routines doing collection and insertion
