@@ -129,6 +129,7 @@ func (m *hostfile) mapip2name(ip string) string {
 func spawnCollector(c string) {
 	var count int
 	count = 0
+	var killed bool
 
 	// compare sha224 of local and remote collector, and skip installation if same,
 	// install if anything goes wrong (like not existing)
@@ -138,8 +139,11 @@ func spawnCollector(c string) {
 	remotesha := strings.Fields(string(out))[0]
 
 	if (localsha != remotesha) || (lerr != nil) || (rerr != nil) {
+		// kill runnning processes in case there is one to avoid busy binary error for scp
+		_, err := exec.Command("ssh", c, "killall", "-e", conf.Collector.CollectorPath).CombinedOutput()
+		killed = true
 		log.Println("installing collector on " + c + " in " + conf.Collector.CollectorPath)
-		out, err := exec.Command("scp", conf.Collector.LocalcollectorPath, c+":"+conf.Collector.CollectorPath).CombinedOutput()
+		out, err = exec.Command("scp", conf.Collector.LocalcollectorPath, c+":"+conf.Collector.CollectorPath).CombinedOutput()
 		if err != nil {
 			log.Println("error: unexpected end on " + c)
 			log.Println(string(out))
@@ -147,16 +151,20 @@ func spawnCollector(c string) {
 		log.Println("installed collector on " + c)
 	} else {
 		log.Println("same hash, skipped collector installation on", c)
+		killed = false
 	}
 
 	t1 := time.Now()
 	for {
 		// kill runnning processes in case there is one
-		out, err := exec.Command("ssh", c, "killall", "-e", conf.Collector.CollectorPath).CombinedOutput()
+		if !killed {
+			exec.Command("ssh", c, "killall", "-e", conf.Collector.CollectorPath).CombinedOutput()
+			killed = true
+		}
 
 		log.Println("starting collector on " + c)
 		count++
-		out, err = exec.Command("ssh", c, conf.Collector.CollectorPath).CombinedOutput()
+		out, err := exec.Command("ssh", c, conf.Collector.CollectorPath).CombinedOutput()
 		if err != nil {
 			log.Println("error: unexpected end on " + c)
 			log.Println(string(out))
