@@ -98,6 +98,14 @@ func (a OstStats) nonzero() bool {
 	return true
 }
 
+// check for positive values
+func (a OstStats) positive() bool {
+	if (a.WRqs < 0) || (a.RRqs < 0) || (a.WBs < 0) || (a.RBs < 0) {
+		return false
+	}
+	return true
+}
+
 // MakeServerRPC register RPC server for inquiries like OST/MDT
 func MakeServerRPC() {
 	server := new(ServerRpcT)
@@ -176,10 +184,10 @@ func (*OssRpcT) GetRandomValues(init bool, result *OstValues) error {
 }
 
 // GetValuesDiff RPC call for OST, return all performance counters which are not zero
-// FIXME no absolte version yet
+// FIXME no absolute version yet
 func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 	//fmt.Printf("RPC oss\n")
-	var last time.Time
+	var last int64
 	if _, err := os.Stat(Procdir + "ost"); err == nil {
 		if init {
 			// we init old and new once to have both, as they cycle, otherwise panic
@@ -190,7 +198,7 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 		}
 
 		// get values
-		now := time.Now()
+		now := time.Now().Unix()
 		ostlist, nidSet := getOstAndNidlist()
 		for _, ost := range ostlist {
 			ostvalues[newpos].OstTotal[ost] = readOstStatfile(ostprocpath + ost + "/stats")
@@ -205,15 +213,29 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 			result.OstTotal = make(map[string]OstStats)
 			result.NidValues = make(map[string]map[string]OstStats)
 
+			// we check for nonzero and positive
+			// non positive values could show up when counters overflow
+			// zero values are ommited for space reasons
+
 			for _, ost := range ostlist {
 				result.NidValues[ost] = make(map[string]OstStats)
+				_, ok := ostvalues[oldpos].OstTotal[ost]
+				if !ok {
+					continue // old value does not exist, we skip this one
+					// this happens e.g. after a OST failover
+				}
 				diff := ostvalues[newpos].OstTotal[ost].sub(ostvalues[oldpos].OstTotal[ost])
-				if diff.nonzero() {
+				if diff.nonzero() && diff.positive() {
 					result.OstTotal[ost] = diff
-					result.Delta = int32(now.Sub(last).Seconds())
+					result.Delta = int32(now - last)
 					for nid := range nidSet {
+						_, ok := (ostvalues[oldpos].NidValues[ost][nid])
+						if !ok {
+							continue // old value does not exist, we skip this one
+							// this happens e.g. after a OST failover, or when a NID issues first IO
+						}
 						diff := ostvalues[newpos].NidValues[ost][nid].sub(ostvalues[oldpos].NidValues[ost][nid])
-						if diff.nonzero() {
+						if diff.nonzero() && diff.positive() {
 							result.NidValues[ost][nid] = diff
 						}
 					}
@@ -233,7 +255,7 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 // GetValuesDiff RPC call for MDS, return counters which are not zero
 func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 	// fmt.Printf("RPC mds\n")
-	var last time.Time
+	var last int64
 	if _, err := os.Stat(Procdir + "mds"); err == nil {
 		if init {
 			mdsvalues[newpos].MdsTotal = make(map[string]int64)
@@ -242,7 +264,7 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 			mdsvalues[oldpos].NidValues = make(map[string]map[string]int64)
 		}
 
-		now := time.Now()
+		now := time.Now().Unix()
 		mdslist, nidSet := getMdtAndNidlist()
 		for _, mds := range mdslist {
 			for _, base := range realmdtprocpath {
@@ -259,15 +281,26 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 			result.MdsTotal = make(map[string]int64)
 			result.NidValues = make(map[string]map[string]int64)
 
+			// we do not send zero and values < 0, for compression reasons
+			// and as negative values indicate error conditions like counter overrun
+
 			for _, mds := range mdslist {
 				result.NidValues[mds] = make(map[string]int64)
+				_, ok := mdsvalues[oldpos].MdsTotal[mds]
+				if !ok {
+					continue // we skip this one as no old value is available, e.g. after failover
+				}
 				diff := mdsvalues[newpos].MdsTotal[mds] - mdsvalues[oldpos].MdsTotal[mds]
-				if diff != 0 {
+				if diff > 0 {
 					result.MdsTotal[mds] = diff
-					result.Delta = int32(now.Sub(last).Seconds())
+					result.Delta = int32(now - last)
 					for nid := range nidSet {
+						_, ok := mdsvalues[oldpos].NidValues[mds][nid]
+						if !ok {
+							continue // we skip this one as no old value is available, e.g. after failover
+						}
 						diff := mdsvalues[newpos].NidValues[mds][nid] - mdsvalues[oldpos].NidValues[mds][nid]
-						if diff != 0 {
+						if diff > 0 {
 							result.NidValues[mds][nid] = diff
 						}
 					}
