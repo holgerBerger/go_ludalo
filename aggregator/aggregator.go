@@ -23,7 +23,6 @@ import (
 	"github.com/holgerBerger/go_ludalo/lustreserver"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
-	"io"
 	"log"
 	"net/rpc"
 	"os"
@@ -356,8 +355,6 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 			if err != nil {
 				log.Println("WARNING: insert error in ossInsert for", server)
 				log.Println(err)
-			}
-			if err == io.EOF {
 				session.Refresh()
 			}
 
@@ -385,8 +382,6 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 				if err != nil {
 					log.Println("WARNING: insert error in ossInsert for", server)
 					log.Println(err)
-				}
-				if err == io.EOF {
 					session.Refresh()
 				}
 			}
@@ -441,8 +436,6 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 			if err != nil {
 				log.Println("WARNING: insert error in mdsInsert for", server)
 				log.Println(err)
-			}
-			if err == io.EOF {
 				session.Refresh()
 			}
 			for nid := range v.NidValues[mdt] {
@@ -466,8 +459,6 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 				if err != nil {
 					log.Println("WARNING: insert error in mdsInsert for", server)
 					log.Println(err)
-				}
-				if err == io.EOF {
 					session.Refresh()
 				}
 			}
@@ -540,11 +531,12 @@ func aggrRun(session *mgo.Session) {
 
 	// create inserters to push data into mongodb
 	// using Copy of session (may be Clone is better? would reuse socket)
+	// changed to Clone()
 	for i, c := range ossCollectors {
-		go ossInsert(c, ossInserters[i], session.Copy())
+		go ossInsert(c, ossInserters[i], session.Clone())
 	}
 	for i, c := range mdsCollectors {
-		go mdsInsert(c, mdsInserters[i], session.Copy())
+		go mdsInsert(c, mdsInserters[i], session.Clone())
 	}
 
 	// create collect goroutines to collect data and push it down the channels
