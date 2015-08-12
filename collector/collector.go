@@ -32,8 +32,8 @@ func main() {
 		fmt.Printf(" looks like mdt, serving mdt\n")
 		lustreserver.IsMDT = true
 	} else {
-		fmt.Printf(" waiting for mds data\n")
-		lustreserver.IsMDT = true
+		fmt.Printf(" waiting for mdt data\n")
+		lustreserver.IsMDT = false
 	}
 	lustreserver.MakeMdsRPC()
 
