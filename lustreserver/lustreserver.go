@@ -12,15 +12,15 @@ package lustreserver
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net"
 	"net/rpc"
 	"os"
 	"strconv"
 	"strings"
-	// "fmt"
-	"math/rand"
 	"time"
 )
 
@@ -30,11 +30,18 @@ const Procdir = "/proc/fs/lustre/"
 const ostprocpath = Procdir + "obdfilter/"
 
 // different lustre versions have different locations for performance files
-// FIXME is this true or do both exist????
-var mdtprocpath = []string{Procdir + "/mds", Procdir + "/mdt"}
+var mdtprocpath = map[string]string{
+	"1.8": "/proc/fs/lustre/mds",
+	"2.5": "/proc/fs/lustre/mdt",
+}
+var mdtstatname = map[string]string{
+	"1.8": "/stats",
+	"2.5": "/md_stats",
+}
 
 // real pathnames after check with exists
-var realmdtprocpath = []string{}
+var realmdtprocpath string
+var realstatname string
 
 // OstStats gives write and read requests and bytes read and written
 type OstStats struct {
@@ -114,15 +121,30 @@ func MakeServerRPC() {
 
 // MakeMdsRPC registers RPC server for MDS
 func MakeMdsRPC() {
+	var ok bool
 	mds := new(MdsRpcT)
 	rpc.Register(mds)
-	realmdtprocpath = make([]string, 1)
-	for _, mdt := range mdtprocpath {
-		if _, err := os.Stat(mdt); err == nil {
-			realmdtprocpath = append(realmdtprocpath, mdt)
+
+	f, err := os.Open("/proc/fs/lustre/version")
+	if err == nil {
+		r := bufio.NewReader(f)
+
+		line, _, err := r.ReadLine()
+		if err == nil {
+			version := strings.Fields(string(line))[1][:3]
+			fmt.Println("lustre version", version)
+			realmdtprocpath, ok = mdtprocpath[version]
+			if !ok {
+				fmt.Println("unknown lustre version", version)
+			}
+			realstatname, ok = mdtstatname[version]
+		} else {
+			log.Panic("could not read lustre version file!")
 		}
+	} else {
+		log.Panic("no lustre version file found!")
 	}
-	// fmt.Printf("reallist: %v\n", realmdtprocpath)
+	f.Close()
 }
 
 // MakeOssRPC registers RPC server for OSS
@@ -247,9 +269,9 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 		}
 		newpos = (newpos + 1) % 2
 		oldpos = (oldpos + 1) % 2
-	} else {
+	} /* else {
 		return errors.New("this is no ost")
-	}
+	} */
 	//fmt.Printf("RPC result %v\n", result)
 	return nil
 }
@@ -271,13 +293,10 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 		mdsvalues[newpos].Timestamp = int32(now)
 		mdslist, nidSet := getMdtAndNidlist()
 		for _, mds := range mdslist {
-			for _, base := range realmdtprocpath {
-				// FIXME md_stats since when?? lustre 2.X ?
-				mdsvalues[newpos].MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/md_stats")
-				mdsvalues[newpos].NidValues[mds] = make(map[string]int64)
-				for nid := range nidSet {
-					mdsvalues[newpos].NidValues[mds][nid] = readMdsStatfile(base + "/" + mds + "/exports/" + nid + "/stats")
-				}
+			mdsvalues[newpos].MdsTotal[mds] = readMdsStatfile(realmdtprocpath + "/" + mds + realstatname)
+			mdsvalues[newpos].NidValues[mds] = make(map[string]int64)
+			for nid := range nidSet {
+				mdsvalues[newpos].NidValues[mds][nid] = readMdsStatfile(realmdtprocpath + "/" + mds + "/exports/" + nid + "/stats")
 			}
 		}
 
@@ -316,9 +335,9 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 		newpos = (newpos + 1) % 2
 		oldpos = (oldpos + 1) % 2
 		last = now
-	} else {
+	} /*else {
 		return errors.New("no mdt")
-	}
+	} */
 	// fmt.Printf("RPC result %v\n", result)
 	return nil
 }
@@ -332,12 +351,10 @@ func (*MdsRpcT) GetValues(arg int, result *MdsValues) error {
 
 		mdslist, nidSet := getMdtAndNidlist()
 		for _, mds := range mdslist {
-			for _, base := range realmdtprocpath {
-				result.MdsTotal[mds] = readMdsStatfile(base + "/" + mds + "/stats")
-				result.NidValues[mds] = make(map[string]int64)
-				for nid := range nidSet {
-					result.NidValues[mds][nid] = readMdsStatfile(base + "/" + mds + "/exports/" + nid + "/stats")
-				}
+			result.MdsTotal[mds] = readMdsStatfile(realmdtprocpath + "/" + mds + "/stats")
+			result.NidValues[mds] = make(map[string]int64)
+			for nid := range nidSet {
+				result.NidValues[mds][nid] = readMdsStatfile(realmdtprocpath + "/" + mds + "/exports/" + nid + "/stats")
 			}
 		}
 	} else {
@@ -447,13 +464,11 @@ func getMdtAndNidlist() ([]string, map[string]struct{}) {
 	nidSet := make(map[string]struct{})
 
 	for _, mdt := range mdtList {
-		for _, base := range realmdtprocpath {
-			files, _ := ioutil.ReadDir(base + "/" + mdt + "/exports")
-			for _, f := range files {
-				if strings.ContainsAny(f.Name(), "@") {
-					nidSet[f.Name()] = struct{}{}
-					// fmt.Printf(f.Name())
-				}
+		files, _ := ioutil.ReadDir(realmdtprocpath + "/" + mdt + "/exports")
+		for _, f := range files {
+			if strings.ContainsAny(f.Name(), "@") {
+				nidSet[f.Name()] = struct{}{}
+				// fmt.Printf(f.Name())
 			}
 		}
 	}
