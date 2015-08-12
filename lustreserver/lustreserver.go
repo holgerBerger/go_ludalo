@@ -86,7 +86,7 @@ func (a OstStats) sub(b OstStats) OstStats {
 	result.WRqs = a.WRqs - b.WRqs
 	result.RRqs = a.RRqs - b.RRqs
 	result.WBs = a.WBs - b.WBs
-	result.WBs = a.WBs - b.WBs
+	result.RBs = a.RBs - b.RBs
 	return result
 }
 
