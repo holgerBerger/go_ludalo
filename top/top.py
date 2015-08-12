@@ -53,7 +53,7 @@ class jobstats(object):
 		self.wiops += node.wiops
 		self.wbw += node.wbw
 		self.riops += node.riops
-		self.riops += node.riops
+		self.rbw += node.rbw
 		self.dt = node.dt
 
 	def __repr__(self):
