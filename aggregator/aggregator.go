@@ -317,7 +317,7 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 	// cache for collections
 	collections := make(map[string]*mgo.Collection)
 
-	var vals [4]int
+	var vals [4]float32
 	var insertItems int32
 
 	for {
@@ -339,10 +339,10 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 			collection := collections[fsname]
 
 			// temp array to insert int array instead of struct
-			vals[0] = int(v.OstTotal[ost].WRqs)
-			vals[1] = int(v.OstTotal[ost].WBs)
-			vals[2] = int(v.OstTotal[ost].RRqs)
-			vals[3] = int(v.OstTotal[ost].RBs)
+			vals[0] = float32(v.OstTotal[ost].WRqs)
+			vals[1] = float32(v.OstTotal[ost].WBs)
+			vals[2] = float32(v.OstTotal[ost].RRqs)
+			vals[3] = float32(v.OstTotal[ost].RBs)
 
 			// insert aggregate data for OST
 			insertItems++
@@ -360,10 +360,10 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 
 			for nid := range v.NidValues[ost] {
 				// temp array to insert int array instead of struct
-				vals[0] = int(v.NidValues[ost][nid].WRqs)
-				vals[1] = int(v.NidValues[ost][nid].WBs)
-				vals[2] = int(v.NidValues[ost][nid].RRqs)
-				vals[3] = int(v.NidValues[ost][nid].RBs)
+				vals[0] = float32(v.NidValues[ost][nid].WRqs)
+				vals[1] = float32(v.NidValues[ost][nid].WBs)
+				vals[2] = float32(v.NidValues[ost][nid].RRqs)
+				vals[3] = float32(v.NidValues[ost][nid].RBs)
 
 				// NID name translation, splitting at @ + IP resolution in case of IP address
 				nidname := strings.Split(nid, "@")[0]
