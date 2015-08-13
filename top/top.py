@@ -3,6 +3,7 @@
 
 #
 # indices used:
+#
 #  use goludalo
 #  db.<fs>.createIndex({"ts":1, "nid":1})
 #
@@ -279,10 +280,10 @@ def printJobSummary(fsname, key):
 		sys.exit()
 
 	print "JOBID      OWNER    NODES TIME   META  WRITE      WrBW   READ      ReBW"
-	print "                          [H]    IOPS   IOPS      [GB]   IOPS      [GB]"
+	print "                          [H]    KIOPS KIOPS      [GB]   KIOPS     [GB]"
 	print "======================================================================="
 	for j in sorted(jobs.values(), key=sortf, reverse=True):
-		print "%-10s %-8s %-5s %4.1f %6d %6d %9.2f %6d %9.2f" % (j.jobid.split(".")[0], j.owner, len(j.nodelist), (time.time()-j.start)/3600, j.miops, j.wiops, j.wbw/1000000000.0, j.riops, j.rbw/1000000000.0)
+		print "%-10s %-8s %-5s %4.1f %6d %6d %9.2f %6d %9.2f" % (j.jobid.split(".")[0], j.owner, len(j.nodelist), (time.time()-j.start)/3600, j.miops/1000, j.wiops/1000, j.wbw/1000000000.0, j.riops/1000, j.rbw/1000000000.0)
 
 if len(sys.argv)<4:
 	print "usage: top.py [sum|top] fsname [meta|iops|bw]"
