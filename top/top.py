@@ -1,5 +1,16 @@
 #!/usr/bin/env python
 
+
+#
+# indices used:
+#  use goludalo
+#  db.<fs>.createIndex({"ts":1, "nid":1})
+#
+#  use ludalo
+#  db.jobs.createIndex({"start":1}) 
+#  db.jobs.createIndex({"end":1}) 
+#  db.jobs.createIndex({"jobid":1}) 
+
 import time,sys
 
 # CONFIG
@@ -8,6 +19,12 @@ SNAP = 5
 PERFDB="goludalo"
 JOBDB="ludalo"
 JOBCOLLECTION="jobs"
+# map filesystems to batchservers to skip some DB queries
+batchservermap={
+"nobnec":"intern2",
+"alnec":"intern3"
+}
+batchskip=True   # set to false if skipping map should not be used
 # END CONFIG
 
 import pymongo 
@@ -64,6 +81,7 @@ class jobstats(object):
 # filesystem object, containing mongo connections
 class filesystem(object):
 	def __init__(self, server, fsname):
+		self.fsname = fsname
 		self.client = pymongo.MongoClient(server)	
 
 		self.perfdb = self.client[PERFDB]
@@ -74,7 +92,8 @@ class filesystem(object):
 
 	# get latest timestamp, searching 5 minutes in the past
 	def getLatestTs(self):
-		return self.perfcoll.find({"ts": {"$gt":getCurrentSnapTime()-300}}).sort("ts",pymongo.ASCENDING)[0][u'ts']
+		latest=self.perfcoll.find({"ts": {"$gt":getCurrentSnapTime()-300}}).sort("ts",pymongo.DESCENDING)[0][u'ts']
+		return latest
 		
 	# get entries for a certain timestamp
 	def getEntries(self, timestamp):
@@ -93,12 +112,12 @@ class filesystem(object):
 				nodes[node]=nodestats(node)
 				nodes[node].dt = e['dt']
 			if 'mdt' in e:
-				nodes[node].miops = e['v']
+				nodes[node].miops += e['v']
 			elif 'ost' in e:
-				nodes[node].wiops = e['v'][0]
-				nodes[node].wbw =   e['v'][1]
-				nodes[node].riops = e['v'][2]
-				nodes[node].rbw =   e['v'][3]
+				nodes[node].wiops += e['v'][0]
+				nodes[node].wbw   += e['v'][1]
+				nodes[node].riops += e['v'][2]
+				nodes[node].rbw   += e['v'][3]
 		return (timestamp, nodes)
 
 
@@ -148,14 +167,31 @@ class filesystem(object):
 		jobs={}
 		for j in self.jobcoll.find({"end":-1}):
 			jobid=j["jobid"]
+			if batchskip and jobid.find(batchservermap[self.fsname])<0: 
+				continue
 			if jobid not in jobs:
 				jobs[jobid]=jobstats(jobid)
 				for nid in j["nids"].split(","):
 					jobs[jobid].nodelist.append(nid)
-					jobs[jobid].start = j["start"]
-					jobs[jobid].end = j["end"]
-					jobs[jobid].owner = j["owner"]
-					jobs[jobid].cmd = j["cmd"]
+				jobs[jobid].start = j["start"]
+				jobs[jobid].end = j["end"]
+				jobs[jobid].owner = j["owner"]
+				jobs[jobid].cmd = j["cmd"]
+				try:
+					jobs[jobid].cachets = j["cachets"]
+					jobs[jobid].miops = j["miops"]
+					jobs[jobid].wiops = j["wiops"]
+					jobs[jobid].wbw   = j["wbw"]
+					jobs[jobid].riops = j["riops"]
+					jobs[jobid].rbw   = j["rbw"]
+				except KeyError:
+					# no cached data for this job
+					jobs[jobid].cachets = jobs[jobid].start
+					jobs[jobid].miops = 0
+					jobs[jobid].wiops = 0
+					jobs[jobid].wbw   = 0
+					jobs[jobid].riops = 0
+					jobs[jobid].rbw   = 0
 		return jobs
 
 	# go over all jobs in list, and add all stats of nodes in job from start to end
@@ -163,35 +199,52 @@ class filesystem(object):
 	def accumulateJobStats(self, jobs):
 		fsjobs=set()
 		for j in jobs:
-			for nid in jobs[j].nodelist:
-				if jobs[j].end == -1:
-					end = time.time()
-				else:
-					end = jobs[j].end
-				start = jobs[j].start
+			if batchskip and j.find(batchservermap[self.fsname])<0: 
+				continue
+			if jobs[j].end == -1:
+				end = int(time.time())
+			else:
+				end = jobs[j].end
+			# we start from cached data, if nothing is cached, this is start
+			start = jobs[j].cachets
 
-				for e in self.perfcoll.find({"$and": [{"nid": nid}, {"ts": {"$gt": start}}, {"ts": {"$lt": end}} ] }):
-					node = e["nid"]
-					if node == "aggr": continue
-					if 'mdt' in e:
-						jobs[j].miops += e['v']
-					elif 'ost' in e:
-						jobs[j].wiops += e['v'][0]
-						jobs[j].wbw   += e['v'][1]
-						jobs[j].riops += e['v'][2]
-						jobs[j].rbw   += e['v'][3]
-					fsjobs.add(j)
+			# print "scanning for",end-start, "sec for",j
+
+			for e in self.perfcoll.find({"$and": [ {"ts": {"$gt": start}}, {"ts": {"$lt": end}}, {"nid": {"$in": jobs[j].nodelist}} ] }):
+				node = e["nid"]
+				if node == "aggr": continue
+				if 'mdt' in e:
+					jobs[j].miops += e['v']
+				elif 'ost' in e:
+					jobs[j].wiops += e['v'][0]
+					jobs[j].wbw   += e['v'][1]
+					jobs[j].riops += e['v'][2]
+					jobs[j].rbw   += e['v'][3]
+			fsjobs.add(j)
+
+			# update cache, write cachets, between start and cachets, data was already summed up
+			# print "update", j
+			self.jobcoll.update( 
+					{"jobid":j}, 
+					{"$set": { 
+						"cachets":end, 
+						"miops":jobs[j].miops,
+						"wiops":jobs[j].wiops,
+						"wbw":jobs[j].wbw,
+						"riops":jobs[j].riops,
+						"rbw":jobs[j].rbw   
+					} } )
 
 		localjobs={}
 		for j in fsjobs:
 			localjobs[j]=jobs[j]
 		return localjobs
 
-
 # print TOP like list of jobs, with current rates
 def printTopjobs(fsname, key):
 	fs = filesystem(DBHOST, fsname)
 	(timestamp, nodes) = fs.currentNodesstats()
+	print time.ctime(timestamp),"\n"
 	jobs = fs.mapNodesToJobs(timestamp, nodes)
 	if key == "meta":
 		sortf=lambda x: x.miops	
@@ -202,15 +255,15 @@ def printTopjobs(fsname, key):
 	else:
 		print "use meta, iops or bw as sorting key"
 		sys.exit()
-	print "JOBID      OWNER    NODES  MIOPS   WIOPS     WBW   RIOPS      RBW"
-	print "                                             MB/s             MB/s"
+	print "JOBID      OWNER    NODES  META   WRITE      WrBW   READ      ReBW"
+	print "                           IOPS    IOPS      MB/s   IOPS      MB/s"
 	print "=================================================================="
 	for j in sorted(jobs.values(), key=sortf, reverse=True):
 		dt = float(j.dt)
 		print "%-10s %-8s %-5s %6d %6d %9.2f %6d %9.2f" % (j.jobid.split(".")[0], j.owner, len(j.nodelist), j.miops/dt, j.wiops/dt, (j.wbw/dt)/1000000.0, j.riops/dt, (j.rbw/dt)/1000000.0)
 
 
-# print TOP like list of jobs, with absolute values over runtime
+# print TOP like list of jobs, with absolute values over runtime (sum over time)
 def printJobSummary(fsname, key):
 	fs = filesystem(DBHOST, fsname)
 	jobs = fs.getRunningJobs()
@@ -225,12 +278,23 @@ def printJobSummary(fsname, key):
 		print "use meta, iops or bw as sorting key"
 		sys.exit()
 
-	print "JOBID      OWNER    NODES  MIOPS   WIOPS     WBW   RIOPS      RBW"
-	print "                                             GB               GB"
-	print "=================================================================="
+	print "JOBID      OWNER    NODES TIME   META  WRITE      WrBW   READ      ReBW"
+	print "                          [H]    IOPS   IOPS      [GB]   IOPS      [GB]"
+	print "======================================================================="
 	for j in sorted(jobs.values(), key=sortf, reverse=True):
-		print "%-10s %-8s %-5s %6d %6d %9.2f %6d %9.2f" % (j.jobid.split(".")[0], j.owner, len(j.nodelist), j.miops, j.wiops, j.wbw/1000000000.0, j.riops, j.rbw/1000000000.0)
+		print "%-10s %-8s %-5s %4.1f %6d %6d %9.2f %6d %9.2f" % (j.jobid.split(".")[0], j.owner, len(j.nodelist), (time.time()-j.start)/3600, j.miops, j.wiops, j.wbw/1000000000.0, j.riops, j.rbw/1000000000.0)
 
+if len(sys.argv)<4:
+	print "usage: top.py [sum|top] fsname [meta|iops|bw]"
+	print "		sum: show aggregated values over runtime of active jobs"
+	print "		top: show current values of active jobs"
+	print 
+	print "		meta: sort for metadata operation"
+	print "		iops: sort for iops"
+	print "		bw: sort for bandwidth"
+	sys.exit(0)
 
-#printTopjobs(sys.argv[1], sys.argv[2])
-printJobSummary(sys.argv[1], sys.argv[2])
+if sys.argv[1]=="top":
+	printTopjobs(sys.argv[2], sys.argv[3])
+if sys.argv[1]=="sum":
+	printJobSummary(sys.argv[2], sys.argv[3])
