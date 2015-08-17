@@ -249,7 +249,12 @@ class filesystem(object):
         else:
             return e["maxima"]
         
-
+    #  0: nodes
+    #  1: metadata
+    #  2: wrqs
+    #  3: rrqs
+    #  4: wbw
+    #  5: rbw
     def writeFSMaxima(self, maxima):
         r = self.maxcoll.update( 
                 {"fsname": self.fsname},
@@ -259,7 +264,29 @@ class filesystem(object):
                 } , 
                 upsert=True
             ) 
-        print r
+        #print r
+
+    # get AGGR values for fs from start to end
+    def getFSvalues(self, start, end):
+        timelist = {}
+        for e in self.perfcoll.find({"$and": [ {"ts": {"$gt": start}}, {"ts": {"$lt": end}}, {"nid": "aggr"} ] }):
+            ts = e["ts"]
+            if ts not in timelist:
+                timelist[ts]={}
+                timelist[ts]["miops"] = 0
+                timelist[ts]["wiops"] = 0
+                timelist[ts]["wbw"]   = 0
+                timelist[ts]["riops"] = 0
+                timelist[ts]["rbw"]   = 0
+            if 'mdt' in e:
+                timelist[ts]["miops"] += e['v']
+            elif 'ost' in e:
+                timelist[ts]["wiops"] += e['v'][0]
+                timelist[ts]["wbw"]   += e['v'][1]
+                timelist[ts]["riops"] += e['v'][2]
+                timelist[ts]["rbw"]   += e['v'][3]
+        return timelist
+        
 
 # print TOP like list of jobs, with current rates
 def printTopjobs(fsname, key):
