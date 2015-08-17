@@ -22,8 +22,8 @@ JOBDB="ludalo"
 JOBCOLLECTION="jobs"
 # map filesystems to batchservers to skip some DB queries
 batchservermap={
-"nobnec":"intern2",
-"alnec":"intern3"
+    "nobnec":"intern2",
+    "alnec":"intern3"
 }
 batchskip=True   # set to false if skipping map should not be used
 # END CONFIG
@@ -162,6 +162,35 @@ class filesystem(object):
         for j in fsjobs:
             localjobs[j]=jobs[j]
         return localjobs
+
+    # get a certain running job 
+    def getOneRunningJob(self, jobid):
+        j = self.jobcoll.find_one({"jobid":jobid})
+        if j == None: return None
+        job=jobstats(jobid)
+        for nid in j["nids"].split(","):
+            job.nodelist.append(nid)
+        job.start = j["start"]
+        job.end   = j["end"]
+        job.owner = j["owner"]
+        job.cmd   = j["cmd"]
+        try:
+            job.cachets = j["cachets"]
+            job.miops = j["miops"]
+            job.wiops = j["wiops"]
+            job.wbw   = j["wbw"]
+            job.riops = j["riops"]
+            job.rbw   = j["rbw"]
+        except KeyError:
+            # no cached data for this job
+            job.cachets = job.start
+            job.miops = 0
+            job.wiops = 0
+            job.wbw   = 0
+            job.riops = 0
+            job.rbw   = 0
+        return job
+
             
     # get all running jobs (from all clusters, can not be avoided)
     def getRunningJobs(self):
@@ -175,9 +204,9 @@ class filesystem(object):
                 for nid in j["nids"].split(","):
                     jobs[jobid].nodelist.append(nid)
                 jobs[jobid].start = j["start"]
-                jobs[jobid].end = j["end"]
+                jobs[jobid].end   = j["end"]
                 jobs[jobid].owner = j["owner"]
-                jobs[jobid].cmd = j["cmd"]
+                jobs[jobid].cmd   = j["cmd"]
                 try:
                     jobs[jobid].cachets = j["cachets"]
                     jobs[jobid].miops = j["miops"]
