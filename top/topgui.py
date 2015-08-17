@@ -2,7 +2,6 @@
 
 
 # IDEEN
-#   maxima in DB speichern, und persistent machen
 #   schnitte/knoten bilden, und text rot faerben/fett wenn ueber schnitt
 #   job anklichbar im bereich der ersten schriftzeile -> fenster mit jobs details wie
 #     aggregierte werte und zeitlicher verlauf, anzahl genutzter OSTs 
@@ -32,24 +31,101 @@ class Job(object):
         
 
 
+class Filesystem(QtGui.QWidget):
+    def __init__(self, name):
+        super(Filesystem, self).__init__()
+        #self.setGeometry(0, 0, 100, 100)
+        self.setMinimumSize(201, 101)
+        self.setMaximumSize(201, 101)
+        self.name = name
+        self.topfs = top.filesystem("localhost",self.name)
+        print name
+        timer = QtCore.QTimer(self)
+        timer.timeout.connect(self.doUpdate)
+        timer.start(1000*10)
+        #self.setMouseTracking(True)
+        self.doUpdate()
 
-#class Window(QtGui.QWidget):
-    #def __init__(self):
-        #super(Window, self).__init__()
-        #self.W = 1500
-        #self.H = 1100
-#
-        #self.so = StackedCoordinates()
-#
-        #vbox = QtGui.QVBoxLayout()
-        #vbox.addStretch(1)
-        #vbox.addWidget(self.so)
-        #self.setLayout(vbox)  
-#
-        #self.setGeometry(300, 300, self.W, self.H)
-        #self.setWindowTitle('ludalo top')
-        #
-        #self.show()
+    def doUpdate(self):
+        self.getData()
+        self.update()
+
+    def mousePressEvent(self, event):
+        self.parentWidget().changeFS(self.name)
+
+    def getData(self):
+        now = self.topfs.getLatestTs()
+        self.timevalues = self.topfs.getFSvalues(now-100*10, now)  # FIXME : 10 is sample interval hardcoded
+
+    def paintEvent(self, event):
+        qp = QtGui.QPainter()
+
+        # box + titel
+        qp.begin(self)
+        qp.setBrush(QtGui.QBrush(QtGui.QColor("white")))
+        qp.drawRect(0,0,200,100)
+        qp.setBrush(QtGui.QBrush(QtGui.QColor("black")))
+        qp.setFont(QtGui.QFont('Decorative', FONTSIZE))
+        qp.drawText(1,FONTSIZE+2,self.name)
+
+        # draw data
+        maxima = self.topfs.readFSMaxima()
+        x = 2
+        for i in sorted(self.timevalues):
+            ratio_meta = float(self.timevalues[i]["miops"])/float(maxima[1])
+            ratio_wr = float(self.timevalues[i]["wiops"])/float(maxima[2])
+            ratio_rr = float(self.timevalues[i]["riops"])/float(maxima[3])
+            ratio = max(ratio_meta,ratio_rr,ratio_wr)
+            setHeatMapColor(qp, 0, 1, ratio)
+            qp.drawLine(x, 99, x, 99-min(80,ratio*80.0))    
+            qp.drawLine(x+1, 99, x+1, 99-min(80,ratio*80.0))    
+            x += 2
+
+        qp.end()
+
+class Window(QtGui.QWidget):
+    def __init__(self):
+        super(Window, self).__init__()
+        self.W = 1500
+        self.H = 1100
+
+        self.so = StackedCoordinates(FILESYSTEM)
+        self.fs1 = Filesystem("alnec")
+        self.fs2 = Filesystem("nobnec")
+
+        vbox = QtGui.QVBoxLayout()
+        vbox.setAlignment(QtCore.Qt.AlignTop)
+        vbox.addWidget(self.fs1)
+        vbox.addWidget(self.fs2)
+
+        hbox = QtGui.QHBoxLayout()
+        # hbox.addStretch(1)
+        hbox.addLayout(vbox)
+        hbox.addWidget(self.so)
+        self.setLayout(hbox)  
+
+        self.setGeometry(300, 300, self.W, self.H)
+        self.setWindowTitle('ludalo top')
+
+        # self.setStyleSheet("background-color:lightgrey;"); 
+        
+        self.show()
+
+    def changeFS(self, name):
+        self.so.changeFS(name)
+
+def setBlack(qp):
+    pen = QtGui.QPen(QtGui.QColor(0,0,0,255))
+    qp.setPen(pen)
+    brush = QtGui.QBrush(QtGui.QColor(0,0,0,255))
+    qp.setBrush(brush)
+
+def setHeatMapColor(qp, min, max, value):
+    if value > max: value = max
+    pen = QtGui.QPen(QtGui.QColor(*rgb(min, max, value, 255)))
+    qp.setPen(pen)
+    brush = QtGui.QBrush(QtGui.QColor(*rgb(min, max, value, 255)))
+    qp.setBrush(brush)
 
 def normalize_bw(bw):
         bw = float(bw)
@@ -66,9 +142,9 @@ def normalize_bw(bw):
         return (bw,unit)
 
 
-class Window(QtGui.QWidget):
-    def __init__(self):
-        super(Window, self).__init__()
+class StackedCoordinates(QtGui.QWidget):
+    def __init__(self, filesystem):
+        super(StackedCoordinates, self).__init__()
         self.W = 1400
         self.H = 1000
         
@@ -78,7 +154,11 @@ class Window(QtGui.QWidget):
         timer.timeout.connect(self.doUpdate)
         timer.start(1000*10)
         self.maxima = [0, 0, 0, 0, 0, 0]
+        self.fsname = filesystem
         
+    def changeFS(self, fsname):
+        self.fsname = fsname 
+        self.update()
         
     def initUI(self):      
 
@@ -98,7 +178,7 @@ class Window(QtGui.QWidget):
     # for those 4 metrics
     # and a tuple with (totalnodes, totalmeta, totalrqs, totalbw)
     def getJobList(self, N=5):
-        self.fs = top.filesystem(top.DBHOST, FILESYSTEM)
+        self.fs = top.filesystem(top.DBHOST, self.fsname)
         (timestamp, nodes) = self.fs.currentNodesstats()
         jobs = self.fs.mapNodesToJobs(timestamp, nodes)
         joblist = {}
@@ -155,6 +235,8 @@ class Window(QtGui.QWidget):
         shares={}
         for j in toplist:
             if totalmeta == 0: totalmeta = 1
+            if (totalwrqs+totalrrqs) == 0: totalrrqs = 1
+            if (totalwbw+totalrbw) == 0: totalrbw = 1
             shares[j.name]={
                 "name":j.name, 
                 "owner": j.owner, 
@@ -171,6 +253,7 @@ class Window(QtGui.QWidget):
 
         return (toplist, shares, totals)
 
+
     def paintEvent(self, event):
         geometry = self.geometry()
         self.W = geometry.width()
@@ -184,6 +267,11 @@ class Window(QtGui.QWidget):
 
         qp.begin(self)
 
+        # background 
+        qp.setPen(QtGui.QPen(QtGui.QColor("black")))
+        qp.drawRect(0, 0, self.W-1, self.H-1+100)
+
+        # polynoms
 
         off = [0, 0, 0, 0]
         lastline = [ QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(self.W,0) ]
@@ -293,20 +381,6 @@ class Window(QtGui.QWidget):
         qp.setPen(pen)
         qp.drawPolygon(points, QtCore.Qt.OddEvenFill)
 
-        # print totals
-
-        pen = QtGui.QPen(QtGui.QColor(0,0,0,255))
-        qp.setPen(pen)
-        brush = QtGui.QBrush(QtGui.QColor(0,0,0))
-        qp.setBrush(brush)
-        qp.setFont(QtGui.QFont('Decorative', FONTSIZE+2))
-        qp.drawText(10, self.H+30, FILESYSTEM+" TOTAL")
-        qp.drawText(250, self.H+30, str(totals[0])+" nodes")
-        qp.drawText(2 + 3 * self.W/8, self.H+30, str(totals[1])+" meta ops/s")
-        qp.drawText(2 + 5 * self.W/8, self.H+30, str(totals[2]+totals[3])+" iops/s")
-        (bw,unit) = normalize_bw(totals[4]+totals[5])
-        qp.drawText(2 + 7 * self.W/8, self.H+30, "%6.2f" % (bw)+unit)
-
         # search maxima
         
         changed = False
@@ -318,20 +392,69 @@ class Window(QtGui.QWidget):
         if changed:
             self.fs.writeFSMaxima(self.maxima)
 
-        # print maxima
+        # print totals
 
         pen = QtGui.QPen(QtGui.QColor(0,0,0,255))
         qp.setPen(pen)
-        brush = QtGui.QBrush(QtGui.QColor(0,0,0))
+        brush = QtGui.QBrush(QtGui.QColor(0,0,0,0))
         qp.setBrush(brush)
         qp.setFont(QtGui.QFont('Decorative', FONTSIZE+2))
-        qp.drawText(10, self.H+50, FILESYSTEM+" MAXIMUM")
-        qp.drawText(250, self.H+50, str(self.maxima[0])+" nodes")
-        qp.drawText(2 + 3 * self.W/8, self.H+50, str(self.maxima[1])+" meta ops/s")
-        qp.drawText(2 + 5 * self.W/8, self.H+50, str(self.maxima[2]+self.maxima[3])+" iops/s")
+        qp.drawText(10, self.H+30, self.fsname+" TOTAL")
+        setHeatMapColor(qp, 0, self.maxima[0],totals[0])
+        qp.drawText(250, self.H+30, str(totals[0])+" nodes")
+        s = 100.0*(float(totals[0])/float(self.maxima[0]))
+        qp.drawRect(250-20, self.H+100-s, 10, s)
 
-        (bw,unit) = normalize_bw(self.maxima[4]+self.maxima[5])
-        qp.drawText(2 + 7 * self.W/8, self.H+50, "%6.2f" % (bw)+unit)
+        setHeatMapColor(qp, 0, self.maxima[1],totals[1])
+        qp.drawText(2 + 3 * self.W/8, self.H+30, str(totals[1])+" meta ops/s")
+        s = 100.0*(float(totals[1])/float(self.maxima[1]))
+        qp.drawRect(2 + 3 * self.W/8-20, self.H+100-s, 10, s)
+
+        qp.setFont(QtGui.QFont('Decorative', (FONTSIZE+1)))
+
+        setHeatMapColor(qp, 0, self.maxima[2],totals[2])
+        qp.drawText(2 + 5 * self.W/8, self.H+20, str(totals[2])+" write iops/s")
+        s = 100.0*(float(totals[2])/float(self.maxima[2]))
+        qp.drawRect(2 + 5 * self.W/8-20, self.H+100-s, 5, s)
+
+        setHeatMapColor(qp, 0, self.maxima[3],totals[3])
+        qp.drawText(2 + 5 * self.W/8, self.H+40, str(totals[3])+" read iops/s")
+        s = 100.0*(float(totals[3])/float(self.maxima[3]))
+        qp.drawRect(2 + 5 * self.W/8-15, self.H+100-s, 5, s)
+
+        setHeatMapColor(qp, 0, self.maxima[4],totals[4])
+        (bw,unit) = normalize_bw(totals[4])
+        qp.drawText(2 + 7 * self.W/8, self.H+20, "write %6.2f" % (bw)+unit)
+        s = 100.0*(float(totals[4])/float(self.maxima[4]))
+        qp.drawRect(2 + 7 * self.W/8-20, self.H+100-s, 5, s)
+
+        setHeatMapColor(qp, 0, self.maxima[5],totals[5])
+        (bw,unit) = normalize_bw(totals[5])
+        qp.drawText(2 + 7 * self.W/8, self.H+40, "read %6.2f" % (bw)+unit)
+        s = 100.0*(float(totals[5])/float(self.maxima[5]))
+        qp.drawRect(2 + 7 * self.W/8-15, self.H+100-s, 5, s)
+
+ 
+
+        # print maxima
+
+        setBlack(qp)
+
+        qp.setFont(QtGui.QFont('Decorative', FONTSIZE+2))
+        qp.drawText(10, self.H+70, self.fsname+" MAXIMUM")
+        qp.drawText(250, self.H+70, str(self.maxima[0])+" nodes")
+        qp.drawText(2 + 3 * self.W/8, self.H+70, str(self.maxima[1])+" meta ops/s")
+
+        qp.setFont(QtGui.QFont('Decorative', (FONTSIZE+1)))
+        qp.drawText(2 + 5 * self.W/8, self.H+65, str(self.maxima[2])+" write iops/s")
+
+        qp.drawText(2 + 5 * self.W/8, self.H+85, str(self.maxima[3])+" read iops/s")
+
+        qp.setFont(QtGui.QFont('Decorative', (FONTSIZE+1)))
+        (bw,unit) = normalize_bw(self.maxima[4])
+        qp.drawText(2 + 7 * self.W/8, self.H+65, "write %1.2f" % (bw)+unit)
+        (bw,unit) = normalize_bw(self.maxima[5])
+        qp.drawText(2 + 7 * self.W/8, self.H+85, "read %1.2f" % (bw)+unit)
 
         qp.end()
         
@@ -343,17 +466,16 @@ class Window(QtGui.QWidget):
 
 # rgb heatmap from stackoverflow 
 # http://stackoverflow.com/questions/20792445/calculate-rgb-value-for-a-range-of-values-to-create-heat-map
-def rgb(minimum, maximum, value):
+def rgb(minimum, maximum, value, t=128):
     minimum, maximum = float(minimum), float(maximum)
     ratio = 2 * (value-minimum) / (maximum - minimum)
     b = int(max(0, 255*(1 - ratio)))
     r = int(max(0, 255*(ratio - 1)))
     g = 255 - b - r
     # print r,g,b
-    return r, g, b, 128
+    return r, g, b, t
 
 if __name__ == '__main__':
-
     app = QtGui.QApplication(sys.argv)
     window = Window()
     window.show()
