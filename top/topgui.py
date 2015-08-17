@@ -2,19 +2,23 @@
 
 
 # IDEEN
-#   schnitte/knoten bilden, und text rot faerben/fett wenn ueber schnitt
 #   job anklichbar im bereich der ersten schriftzeile -> fenster mit jobs details wie
 #     aggregierte werte und zeitlicher verlauf, anzahl genutzter OSTs 
 
 
-import sys
+import sys, time
 from PySide import QtCore, QtGui
 import top
 
-FONTSIZE=11
-FILESYSTEM="alnec"
-FILESYSTEM="nobnec"
 
+INTERVAL=10
+FONTSIZE=11        # FIXME some places need check for this size, is a bit hardcoded
+
+FILESYSTEMLIST = [ "alnec", "nobnec" ]
+
+
+
+# helper class
 class Job(object):
     def __init__(self,name,owner,nodes,meta,wrqs,wbw,rrqs,rbw):
         self.name  = name
@@ -31,20 +35,22 @@ class Job(object):
         
 
 
+# Widget to show last minutes of loaf of a filesystem and name 202x102 pixels
 class Filesystem(QtGui.QWidget):
     def __init__(self, name):
         super(Filesystem, self).__init__()
         #self.setGeometry(0, 0, 100, 100)
-        self.setMinimumSize(201, 101)
-        self.setMaximumSize(201, 101)
+        self.setMinimumSize(203, 102)
+        self.setMaximumSize(203, 102)
         self.name = name
         self.topfs = top.filesystem("localhost",self.name)
         print name
         timer = QtCore.QTimer(self)
         timer.timeout.connect(self.doUpdate)
-        timer.start(1000*10)
+        timer.start(1000*INTERVAL)
         #self.setMouseTracking(True)
         self.doUpdate()
+        self.selected = False
 
     def doUpdate(self):
         self.getData()
@@ -55,48 +61,68 @@ class Filesystem(QtGui.QWidget):
 
     def getData(self):
         now = self.topfs.getLatestTs()
-        self.timevalues = self.topfs.getFSvalues(now-100*10, now)  # FIXME : 10 is sample interval hardcoded
+        self.timevalues = self.topfs.getFSvalues(now-100*INTERVAL, now) 
+
+    def select(self):
+        self.selected = True
+        self.update()
+
+    def deselect(self):
+        self.selected = False
+        self.update()
 
     def paintEvent(self, event):
         qp = QtGui.QPainter()
 
         # box + titel
         qp.begin(self)
+        if self.selected:
+            qp.setPen(QtGui.QPen(QtGui.QColor("black")))
+        else:
+            qp.setPen(QtGui.QPen(QtGui.QColor("white")))
         qp.setBrush(QtGui.QBrush(QtGui.QColor("white")))
-        qp.drawRect(0,0,200,100)
+        qp.drawRect(0,0,203,102) # border
+        qp.setBrush(QtGui.QBrush(QtGui.QColor(0,0,0,0)))
+        qp.drawRect(1,1,202,101) # border
+        qp.setPen(QtGui.QPen(QtGui.QColor("black")))
         qp.setBrush(QtGui.QBrush(QtGui.QColor("black")))
         qp.setFont(QtGui.QFont('Decorative', FONTSIZE))
-        qp.drawText(1,FONTSIZE+2,self.name)
+        qp.drawText(2,FONTSIZE+3,self.name)
 
         # draw data
         maxima = self.topfs.readFSMaxima()
-        x = 2
+        # take maximum of IOPS counters ratio to max as FS load
+        x = 3
         for i in sorted(self.timevalues):
             ratio_meta = float(self.timevalues[i]["miops"])/float(maxima[1])
-            ratio_wr = float(self.timevalues[i]["wiops"])/float(maxima[2])
-            ratio_rr = float(self.timevalues[i]["riops"])/float(maxima[3])
+            ratio_wr   = float(self.timevalues[i]["wiops"])/float(maxima[2])
+            ratio_rr   = float(self.timevalues[i]["riops"])/float(maxima[3])
             ratio = max(ratio_meta,ratio_rr,ratio_wr)
             setHeatMapColor(qp, 0, 1, ratio)
             qp.drawLine(x, 99, x, 99-min(80,ratio*80.0))    
             qp.drawLine(x+1, 99, x+1, 99-min(80,ratio*80.0))    
-            x += 2
+            x += 2  # drawn 2 pixels wide
 
         qp.end()
 
+
+# main window, embed list of windows on left side, stacked coordinates on right side
 class Window(QtGui.QWidget):
     def __init__(self):
         super(Window, self).__init__()
         self.W = 1500
         self.H = 1100
 
-        self.so = StackedCoordinates(FILESYSTEM)
-        self.fs1 = Filesystem("alnec")
-        self.fs2 = Filesystem("nobnec")
+        self.so = StackedCoordinates(FILESYSTEMLIST[0])
+        self.fslist = {}
+        for f in FILESYSTEMLIST:
+            self.fslist[f]=Filesystem(f)
+        self.fslist[FILESYSTEMLIST[0]].select()
 
         vbox = QtGui.QVBoxLayout()
         vbox.setAlignment(QtCore.Qt.AlignTop)
-        vbox.addWidget(self.fs1)
-        vbox.addWidget(self.fs2)
+        for f in self.fslist:
+            vbox.addWidget(self.fslist[f])
 
         hbox = QtGui.QHBoxLayout()
         # hbox.addStretch(1)
@@ -111,37 +137,18 @@ class Window(QtGui.QWidget):
         
         self.show()
 
+
+    # call StackedCoordinates.changeFS
     def changeFS(self, name):
+        for f in self.fslist:
+            if self.fslist[f].selected:
+                self.fslist[f].deselect()
+        self.fslist[name].select()
         self.so.changeFS(name)
 
-def setBlack(qp):
-    pen = QtGui.QPen(QtGui.QColor(0,0,0,255))
-    qp.setPen(pen)
-    brush = QtGui.QBrush(QtGui.QColor(0,0,0,255))
-    qp.setBrush(brush)
 
-def setHeatMapColor(qp, min, max, value):
-    if value > max: value = max
-    pen = QtGui.QPen(QtGui.QColor(*rgb(min, max, value, 255)))
-    qp.setPen(pen)
-    brush = QtGui.QBrush(QtGui.QColor(*rgb(min, max, value, 255)))
-    qp.setBrush(brush)
-
-def normalize_bw(bw):
-        bw = float(bw)
-        unit = " B/s"
-        if bw > 1000:
-            bw /= 1000
-            unit = " KB/s"
-        if bw > 1000:
-            bw /= 1000
-            unit = " MB/s"
-        if bw > 1000:
-            bw /= 1000
-            unit = " GB/s"
-        return (bw,unit)
-
-
+# stacked coordinates widget, show jobs and load info of FS
+# call changeFS to change FS and update
 class StackedCoordinates(QtGui.QWidget):
     def __init__(self, filesystem):
         super(StackedCoordinates, self).__init__()
@@ -149,27 +156,74 @@ class StackedCoordinates(QtGui.QWidget):
         self.H = 1000
         
         #self.setMinimumSize(self.W, self.H)
-        self.initUI()
-        timer = QtCore.QTimer(self)
-        timer.timeout.connect(self.doUpdate)
-        timer.start(1000*10)
         self.maxima = [0, 0, 0, 0, 0, 0]
         self.fsname = filesystem
+
+        # mouseras contains tuples with y coordinates for jobnames
+        self.mouseareas={}
+        self.mouseareas["nodes"] = {}
+        self.mouseareas["meta"]  = {}
+        self.mouseareas["rqs"]   = {}
+        self.mouseareas["bw"]    = {}
+
+        self.topfs = top.filesystem("localhost",self.fsname)
+
+        self.initUI()
+
+        # start timer for auto update  # FIXME move to Window and Update all at once with one timer?
+        timer = QtCore.QTimer(self)
+        timer.timeout.connect(self.doUpdate)
+        timer.start(1000*INTERVAL)
         
+    # change FS and update
     def changeFS(self, fsname):
         self.fsname = fsname 
-        self.update()
+        self.topfs = top.filesystem("localhost",self.fsname)
+        self.doUpdate()
         
     def initUI(self):      
-
         # self.showFullScreen()
         self.setMinimumHeight(800)
         self.setMinimumWidth(1000)
         self.setGeometry(300, 300, self.W, self.H+50)
         self.setWindowTitle('ludalo top')
+        self.doUpdate()
         self.show()
 
+    # map mouse position to job
+    def mousePressEvent(self, e):
+        x,y = e.x(), e.y()
+        if x > 0 and x < 2 * self.W/8:
+            col = "nodes"
+        elif x > 3 * self.W/8 and x < 4 * self.W/8:
+            col = "meta"
+        elif x > 5 * self.W/8 and x < 6 * self.W/8:
+            col = "rqs"
+        elif x > 7 * self.W/8 and x < 8 * self.W/8:
+            col = "bw"
+        else:
+            return
+    
+        job = ""
+        for j in self.mouseareas[col]:
+            yu, yl = self.mouseareas[col][j]
+            if y>yu and y<yl:
+                job = j
+                break
+        else:
+            return
+        
+        # print "show details about job", job
+        job = self.topfs.getOneRunningJob(job)
+        if job != None:
+            jobs = {job.jobid: job}
+            jobdata = self.topfs.accumulateJobStats(jobs)
+            self.tl = TimeLine(jobdata[job.jobid])
+
+
+    # get data and start redraw
     def doUpdate(self):
+        self.getData()
         self.update()
 
     # get a sorted list of Job classes, giving top N nodes
@@ -185,8 +239,7 @@ class StackedCoordinates(QtGui.QWidget):
         # convert in local format 
         for j in jobs:
             cj = jobs[j]
-            # FIXME SAMPLE INTERVAL
-            joblist[j] = Job(j,cj.owner, len(cj.nodelist), cj.miops/10, cj.wiops/10, cj.wbw/10, cj.riops/10, cj.rbw/10 )
+            joblist[j] = Job(j,cj.owner, len(cj.nodelist), cj.miops/INTERVAL, cj.wiops/INTERVAL, cj.wbw/INTERVAL, cj.riops/INTERVAL, cj.rbw/INTERVAL )
             
         totalnodes= 0
         totalmeta = 0
@@ -254,13 +307,18 @@ class StackedCoordinates(QtGui.QWidget):
         return (toplist, shares, totals)
 
 
+    # get data from DB
+    def getData(self):
+        (self.jobs,self.shares,self.totals) = self.getJobList(5)    # FIXME should be decoupled from redraw!
+
+
+    # draw everything
     def paintEvent(self, event):
         geometry = self.geometry()
         self.W = geometry.width()
         self.H = geometry.height()-100   # space for lower bound
 
-        # get data from DB
-        (jobs,shares,totals) = self.getJobList(5) 
+        (jobs, shares, totals) = (self.jobs, self.shares, self.totals)
 
         # print "paintEvent"
         qp = QtGui.QPainter()
@@ -271,10 +329,19 @@ class StackedCoordinates(QtGui.QWidget):
         qp.setPen(QtGui.QPen(QtGui.QColor("black")))
         qp.drawRect(0, 0, self.W-1, self.H-1+100)
 
-        # polynoms
+        # polygons
 
         off = [0, 0, 0, 0]
-        lastline = [ QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(self.W,0) ]
+        lastline = [ QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), 
+                     QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(0,0), QtCore.QPoint(self.W,0) ]
+
+        # mouseras contains tuples with y coordinates for jobnames
+        self.mouseareas={}
+        self.mouseareas["nodes"] = {}
+        self.mouseareas["meta"]  = {}
+        self.mouseareas["rqs"]   = {}
+        self.mouseareas["bw"]    = {}
+
         counter = 1
         for job in jobs:
             j = job.name
@@ -295,6 +362,12 @@ class StackedCoordinates(QtGui.QWidget):
                         # bw
                         QtCore.QPoint(8 * self.W/8, self.H*shares[j]["bw"] + off[3]),
                       ]
+
+            self.mouseareas["nodes"][j] = (off[0], off[0]+self.H*shares[j]["nodes"])
+            self.mouseareas["meta"][j]  = (off[1], off[1]+self.H*shares[j]["meta"])
+            self.mouseareas["rqs"][j]   = (off[2], off[2]+self.H*shares[j]["rqs"])
+            self.mouseareas["bw"][j]    = (off[3], off[3]+self.H*shares[j]["bw"])
+
             off[0] += self.H*shares[j]["nodes"]
             off[1] += self.H*shares[j]["meta"]
             off[2] += self.H*shares[j]["rqs"]
@@ -369,7 +442,7 @@ class StackedCoordinates(QtGui.QWidget):
 
             counter += 1
 
-        # fill remainder at bottom
+        # fill remainder at bottom (in case the X jobs do not fill the 100%)
         
         newline = [ QtCore.QPoint(0,self.H), QtCore.QPoint(self.W,self.H) ]
         points=[]
@@ -402,37 +475,42 @@ class StackedCoordinates(QtGui.QWidget):
         qp.drawText(10, self.H+30, self.fsname+" TOTAL")
         setHeatMapColor(qp, 0, self.maxima[0],totals[0])
         qp.drawText(250, self.H+30, str(totals[0])+" nodes")
-        s = 100.0*(float(totals[0])/float(self.maxima[0]))
-        qp.drawRect(250-20, self.H+100-s, 10, s)
+        s = 98.0*(float(totals[0])/float(self.maxima[0]))
+        qp.drawRect(250-20, self.H+100-s-1, 10, s)
 
+        # meta + bar
         setHeatMapColor(qp, 0, self.maxima[1],totals[1])
         qp.drawText(2 + 3 * self.W/8, self.H+30, str(totals[1])+" meta ops/s")
-        s = 100.0*(float(totals[1])/float(self.maxima[1]))
-        qp.drawRect(2 + 3 * self.W/8-20, self.H+100-s, 10, s)
+        s = 98.0*(float(totals[1])/float(self.maxima[1]))
+        qp.drawRect(2 + 3 * self.W/8-20, self.H+100-s-1, 10, s)
 
         qp.setFont(QtGui.QFont('Decorative', (FONTSIZE+1)))
 
+        # write iops + bar
         setHeatMapColor(qp, 0, self.maxima[2],totals[2])
         qp.drawText(2 + 5 * self.W/8, self.H+20, str(totals[2])+" write iops/s")
-        s = 100.0*(float(totals[2])/float(self.maxima[2]))
-        qp.drawRect(2 + 5 * self.W/8-20, self.H+100-s, 5, s)
+        s = 98.0*(float(totals[2])/float(self.maxima[2]))
+        qp.drawRect(2 + 5 * self.W/8-30, self.H+100-s-1, 10, s)
 
+        # read iops + bar
         setHeatMapColor(qp, 0, self.maxima[3],totals[3])
         qp.drawText(2 + 5 * self.W/8, self.H+40, str(totals[3])+" read iops/s")
-        s = 100.0*(float(totals[3])/float(self.maxima[3]))
-        qp.drawRect(2 + 5 * self.W/8-15, self.H+100-s, 5, s)
+        s = 98.0*(float(totals[3])/float(self.maxima[3]))
+        qp.drawRect(2 + 5 * self.W/8-20, self.H+100-s-1, 10, s)
 
+        # write BW + bar
         setHeatMapColor(qp, 0, self.maxima[4],totals[4])
         (bw,unit) = normalize_bw(totals[4])
         qp.drawText(2 + 7 * self.W/8, self.H+20, "write %6.2f" % (bw)+unit)
-        s = 100.0*(float(totals[4])/float(self.maxima[4]))
-        qp.drawRect(2 + 7 * self.W/8-20, self.H+100-s, 5, s)
+        s = 98.0*(float(totals[4])/float(self.maxima[4]))
+        qp.drawRect(2 + 7 * self.W/8-30, self.H+100-s-1, 10, s)
 
+        # read BW + bar
         setHeatMapColor(qp, 0, self.maxima[5],totals[5])
         (bw,unit) = normalize_bw(totals[5])
         qp.drawText(2 + 7 * self.W/8, self.H+40, "read %6.2f" % (bw)+unit)
-        s = 100.0*(float(totals[5])/float(self.maxima[5]))
-        qp.drawRect(2 + 7 * self.W/8-15, self.H+100-s, 5, s)
+        s = 98.0*(float(totals[5])/float(self.maxima[5]))
+        qp.drawRect(2 + 7 * self.W/8-20, self.H+100-s-1, 10, s)
 
  
 
@@ -458,10 +536,44 @@ class StackedCoordinates(QtGui.QWidget):
 
         qp.end()
         
-    def drawText(self, event, qp):
-        qp.setPen(QtGui.QColor(168, 34, 3))
-        qp.setFont(QtGui.QFont('Decorative', 10))
-        qp.drawText(event.rect(), QtCore.Qt.AlignCenter, self.text) 
+
+
+# widget to show timeline of job
+class TimeLine(QtGui.QWidget):
+    def __init__(self, job):
+        super(TimeLine, self).__init__()
+        self.job = job
+        self.jobid = job.jobid
+        self.setMinimumSize(800, 200)
+        self.setWindowTitle('job details for'+self.jobid)
+        self.setGeometry(300, 400, 800, 200)
+        self.setStyleSheet("background-color:white;"); 
+        self.setWindowFlags(QtCore.Qt.Window)
+        self.show()
+
+    def paintEvent(self, e):
+        qp = QtGui.QPainter()
+        qp.begin(self)
+        qp.setFont(QtGui.QFont('Decorative', FONTSIZE))
+        qp.drawText(10,20,              "Jobid: "+self.jobid)
+        qp.drawText(10,20+FONTSIZE*2,   "Owner: "+self.job.owner)
+        qp.drawText(10,20+FONTSIZE*4,   "Nodes: "+str(len(self.job.nodelist)))
+        qp.drawText(250,20,             "Start  : "+time.ctime(self.job.start))
+        if self.job.end==-1:
+            qp.drawText(250,20+FONTSIZE*2,  "End    : still running")
+            end = time.time()
+        else:
+            qp.drawText(250,20+FONTSIZE*2,  "End    : "+time.ctime(self.job.end))
+            end = self.job.end
+        qp.drawText(250,20+FONTSIZE*4,  "Walltime: "+normalize_time(end-self.job.start))
+        qp.drawText(550,20,             "Cmd : "+self.job.cmd)
+    
+        qp.drawText(10,20+FONTSIZE*6,   "Bytes written: "+normalize_size(self.job.wbw))
+        qp.drawText(250,20+FONTSIZE*6,  "Bytes read: "+normalize_size(self.job.rbw))
+        qp.drawText(550,20+FONTSIZE*6,  "Metadata operations: "+str(self.job.miops))
+        qp.drawText(10,20+FONTSIZE*8,   "Write Requests: "+str(self.job.wiops))
+        qp.drawText(250,20+FONTSIZE*8,  "Read Requests: "+str(self.job.riops))
+        qp.end()
 
 
 # rgb heatmap from stackoverflow 
@@ -474,6 +586,70 @@ def rgb(minimum, maximum, value, t=128):
     g = 255 - b - r
     # print r,g,b
     return r, g, b, t
+
+
+# reset qp to black
+def setBlack(qp):
+    pen = QtGui.QPen(QtGui.QColor(0,0,0,255))
+    qp.setPen(pen)
+    brush = QtGui.QBrush(QtGui.QColor(0,0,0,255))
+    qp.setBrush(brush)
+
+# heatmap color helper, no alpha
+def setHeatMapColor(qp, min, max, value):
+    if value > max: value = max
+    pen = QtGui.QPen(QtGui.QColor(*rgb(min, max, value, 255)))
+    qp.setPen(pen)
+    brush = QtGui.QBrush(QtGui.QColor(*rgb(min, max, value, 255)))
+    qp.setBrush(brush)
+
+
+# helper for time difference normalizaton, returns string
+def normalize_time(secs):
+    s = 0
+    m = 0
+    h = 0
+    if secs > 60:
+        s = secs % 60
+        secs /= 60
+    if secs > 60:
+        m = secs % 60
+        h = secs / 60
+    return "%2.2d:%2.2d:%2.2d" % (h,m,s)
+        
+
+# helper for BW units
+def normalize_bw(bw):
+        bw = float(bw)
+        unit = " B/s"
+        if bw > 1000:
+            bw /= 1000
+            unit = " KB/s"
+        if bw > 1000:
+            bw /= 1000
+            unit = " MB/s"
+        if bw > 1000:
+            bw /= 1000
+            unit = " GB/s"
+        return (bw,unit)
+
+# helper for BW units
+def normalize_size(bw):
+        bw = float(bw)
+        unit = " B"
+        if bw > 1000:
+            bw /= 1000
+            unit = " KB"
+        if bw > 1000:
+            bw /= 1000
+            unit = " MB"
+        if bw > 1000:
+            bw /= 1000
+            unit = " GB"
+        return "%1.2f %s" % (bw,unit)
+
+
+# MAIN MESS
 
 if __name__ == '__main__':
     app = QtGui.QApplication(sys.argv)
