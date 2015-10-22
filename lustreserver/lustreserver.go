@@ -13,12 +13,12 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
 	"net/rpc"
 	"os"
+	//	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
@@ -209,6 +209,15 @@ func (*OssRpcT) GetRandomValues(init bool, result *OstValues) error {
 // FIXME no absolute version yet
 func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 	//fmt.Printf("RPC oss\n")
+
+	/* PROFILING CODE
+	pf, err := os.Create("/tmp/gocollector.profile")
+	if err != nil {
+		log.Fatal(err)
+	}
+	pprof.StartCPUProfile(pf)
+	*/
+
 	var last, now int32
 	if _, err := os.Stat(Procdir + "ost"); err == nil {
 		if init {
@@ -273,6 +282,9 @@ func (*OssRpcT) GetValuesDiff(init bool, result *OstValues) error {
 		return errors.New("this is no ost")
 	} */
 	//fmt.Printf("RPC result %v\n", result)
+	/* PROFILING CODE
+	pprof.StopCPUProfile()
+	*/
 	return nil
 }
 
@@ -425,7 +437,9 @@ func readMdsStatfile(filename string) int64 {
 // get list of OSTs and NIDs, nids is a map used as set
 func getOstAndNidlist() ([]string, map[string]struct{}) {
 	ostList := []string{}
-	files, _ := ioutil.ReadDir(ostprocpath)
+	tmpfile, _ := os.Open(ostprocpath)
+	files, _ := tmpfile.Readdir(-1)
+	tmpfile.Close()
 	for _, f := range files {
 		if f.IsDir() {
 			ostList = append(ostList, f.Name())
@@ -436,11 +450,12 @@ func getOstAndNidlist() ([]string, map[string]struct{}) {
 	nidSet := make(map[string]struct{})
 
 	for _, ost := range ostList {
-		files, _ := ioutil.ReadDir(ostprocpath + ost + "/exports")
+		tmpfile, _ := os.Open(ostprocpath + ost + "/exports")
+		files, _ := tmpfile.Readdirnames(-1)
+		tmpfile.Close()
 		for _, f := range files {
-			if strings.ContainsAny(f.Name(), "@") {
-				nidSet[f.Name()] = struct{}{}
-				// fmt.Printf(f.Name())
+			if strings.ContainsAny(f, "@") {
+				nidSet[f] = struct{}{}
 			}
 		}
 	}
@@ -452,7 +467,9 @@ func getOstAndNidlist() ([]string, map[string]struct{}) {
 func getMdtAndNidlist() ([]string, map[string]struct{}) {
 	mdtList := []string{}
 	for _, mdt := range mdtprocpath {
-		files, _ := ioutil.ReadDir(mdt)
+		tmpfile, _ := os.Open(mdt)
+		files, _ := tmpfile.Readdir(-1)
+		tmpfile.Close()
 		for _, f := range files {
 			if f.IsDir() && strings.Index(f.Name(), "-MDT") != -1 {
 				mdtList = append(mdtList, f.Name())
@@ -464,11 +481,12 @@ func getMdtAndNidlist() ([]string, map[string]struct{}) {
 	nidSet := make(map[string]struct{})
 
 	for _, mdt := range mdtList {
-		files, _ := ioutil.ReadDir(realmdtprocpath + "/" + mdt + "/exports")
+		tmpfile, _ := os.Open(realmdtprocpath + "/" + mdt + "/exports")
+		files, _ := tmpfile.Readdirnames(-1)
+		tmpfile.Close()
 		for _, f := range files {
-			if strings.ContainsAny(f.Name(), "@") {
-				nidSet[f.Name()] = struct{}{}
-				// fmt.Printf(f.Name())
+			if strings.ContainsAny(f, "@") {
+				nidSet[f] = struct{}{}
 			}
 		}
 	}
