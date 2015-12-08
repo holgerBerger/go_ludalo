@@ -386,6 +386,19 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 				}
 			}
 		}
+
+		// write latest timestamp into DB as marker for end of transaction, so client won't read incomplete data
+		_, ok := collections["latesttimestamp"]
+		if !ok {
+			collections["latesttimestamp"] = db.C("latesttimestamp")
+		}
+		_, err := collections["latesttimestamp"].Upsert(bson.M{"latestts": bson.M{"$exists": true}},
+			bson.M{"$set": bson.M{"latestts": int(v.Timestamp)}})
+		if err != nil {
+			log.Println("WARNING: error in update of last timestamp")
+			log.Println(err)
+		}
+
 		t2 := time.Now()
 
 		insertTimes[server] = float32(t2.Sub(t1).Seconds())
@@ -561,18 +574,19 @@ func aggrRun(session *mgo.Session) {
 	insertMDSItems = make(map[string]int32)
 	insertOSSItems = make(map[string]int32)
 	for {
-		for _, o := range ossCollectors {
-			select {
-			case <-ready[o]:
-				ready[o] <- 1
-			default:
-				// skip this one, it is busy, channel is probably filled or RPC is stuck
-			}
-		}
 		for _, m := range mdsCollectors {
 			select {
 			case <-ready[m]:
 				ready[m] <- 1
+			default:
+				// skip this one, it is busy, channel is probably filled or RPC is stuck
+			}
+		}
+		// oss last, as oss writes the timestamps into DB
+		for _, o := range ossCollectors {
+			select {
+			case <-ready[o]:
+				ready[o] <- 1
 			default:
 				// skip this one, it is busy, channel is probably filled or RPC is stuck
 			}

@@ -14,7 +14,10 @@ import (
 	"fmt"
 	"log"
 	"net/rpc"
+	"strings"
 )
+
+var client *rpc.Client
 
 func ossList(client *rpc.Client) []string {
 	var reply []string
@@ -34,6 +37,15 @@ func ostList(client *rpc.Client) []string {
 	return reply
 }
 
+func fslist() []string {
+	fslist := make([]string, 100)
+	ostlist := ostList(client)
+	for _, v := range ostlist {
+		fslist = append(fslist, strings.Split(v, "-")[0])
+	}
+	return fslist
+}
+
 func main() {
 
 	client, err := rpc.Dial("tcp", "localhost:2345")
@@ -43,4 +55,5 @@ func main() {
 
 	ostlist := ostList(client)
 	fmt.Println(ostlist)
+	fmt.Println(fslist())
 }
