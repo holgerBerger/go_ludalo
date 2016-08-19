@@ -9,10 +9,12 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
+// Res2job is used to map resid to jobid using leveldb
 type Res2job struct {
 	db *leveldb.DB
 }
 
+// NewRes2job creates a db object
 func NewRes2job(name string) *Res2job {
 	db, err := leveldb.OpenFile(name, nil)
 	if err != nil {

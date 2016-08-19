@@ -9,14 +9,18 @@ import (
 	"time"
 )
 
+const unknownjob = "unknown_job"
+
+// Logfile is an open logfile
 type Logfile struct {
-	name string
-	file *os.File
+	name  string
+	file  *os.File
+	mongo *MongoDB
 }
 
 // get value from key value pairs where value is after key
 func getvalue(tokens [][]byte, key string) string {
-	for i, _ := range tokens {
+	for i := range tokens {
 		if bytes.Compare(tokens[i], []byte(key)) == 0 {
 			return string(tokens[i+1])
 		}
@@ -36,12 +40,12 @@ func parsetime(line string) time.Time {
 }
 
 // newLogfile opens a file and reads to current end
-func newLogfile(name string) *Logfile {
+func newLogfile(name string, mongo *MongoDB) *Logfile {
 	file, err := os.Open(name)
 	if err != nil {
 		panic("could not open file" + name)
 	}
-	logfile := Logfile{name, file}
+	logfile := Logfile{name, file, mongo}
 	log.Println("opened new logfile", name)
 	logfile.readToEnd()
 
@@ -66,7 +70,9 @@ func (l *Logfile) readToEnd() {
 			tokens := bytes.Split(bytes.TrimSpace(line), []byte(" "))
 			jobid := getvalue(tokens, "batchId")
 			resid := getvalue(tokens, "resId")
-			log.Println("  new job", jobid, resid, parsetime(string(tokens[0])))
+			time := parsetime(string(tokens[0]))
+			log.Println("  new job", jobid, resid, time)
+			l.mongo.InsertJob(jobid, time)
 			totaljobs++
 			res2job.setJob(resid, jobid)
 			continue
@@ -83,10 +89,11 @@ func (l *Logfile) readToEnd() {
 
 			jobid, err := res2job.getJob(resid)
 			if err != nil {
-				jobid = "unknown_job"
+				jobid = unknownjob
 			}
 
 			log.Println("    placed job", jobid, resid, uid, cmd, nids)
+			l.mongo.AddJobInfo(jobid, uid, cmd, nids)
 			continue
 		}
 
@@ -96,7 +103,7 @@ func (l *Logfile) readToEnd() {
 			resid := getvalue(tokens, "resId")
 			jobid, error := res2job.getJob(resid)
 			if error != nil {
-				jobid = "unknown_job"
+				jobid = unknownjob
 			}
 			log.Println("    end of aprun", jobid, resid)
 			continue
@@ -110,10 +117,12 @@ func (l *Logfile) readToEnd() {
 			resid := strings.TrimRight(getvalue(tokens, "resId"), "'")
 			jobid, err := res2job.getJob(resid)
 			if err != nil {
-				jobid = "unknown_job"
+				jobid = unknownjob
 			}
-			log.Println("  end of job", jobid, resid, parsetime(string(tokens[0])))
-			// be so kind and free storage in DB
+			time := parsetime(string(tokens[0]))
+			log.Println("  end of job", jobid, resid, time)
+			l.mongo.EndJob(jobid, time)
+			// be so kind and free storage in local DB
 			res2job.delJob(resid)
 			continue
 		}

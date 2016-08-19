@@ -6,9 +6,13 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// Config represents the config file
 type Config struct {
 	WatchDirectory string
 	FilePrefix     string
+	MongoServer    string
+	MongoDB        string
+	Collection     string
 }
 
 // global variable with config

@@ -17,19 +17,21 @@ func todayname() string {
 }
 
 // eventloop prepares the inotify events and waits for them
-func eventloop() {
+func eventloop(mongo *MongoDB) {
 
 	// open current file
-	currentlog := newLogfile(todayname())
+	currentlog := newLogfile(todayname(), mongo)
 
 	watcher, err := inotify.NewWatcher()
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	err = watcher.Watch(config.WatchDirectory)
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	for {
 		select {
 		case ev := <-watcher.Event:
@@ -39,7 +41,7 @@ func eventloop() {
 				//if ev.Name != currentlog.name && ev.Name == "testdata/apsched-c2-0c0s0n1-20160820" {
 				if ev.Name != currentlog.name && ev.Name == todayname() {
 					currentlog.readToEnd() // read rest of file in case we missed something
-					currentlog = newLogfile(ev.Name)
+					currentlog = newLogfile(ev.Name, mongo)
 				}
 			} else if (ev.Mask & inotify.IN_MODIFY) > 0 {
 				// if a file is updated, read file to end if it is current file
@@ -65,10 +67,22 @@ func (d *devnull) Write(p []byte) (int, error) {
 // main programm
 func main() {
 
+	/*
+		f, err := os.Create("profile")
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	*/
+
 	// init some stuff
 	readConf()
 	res2job = NewRes2job("res2job.db")
 	totaljobs = 0
+
+	// mongo setup
+	mongo := NewMongo()
 
 	// switch of output for the files on command line
 	defaultOut := os.Stderr
@@ -77,7 +91,7 @@ func main() {
 
 	// read files from commandline
 	for _, file := range os.Args[1:] {
-		_ = newLogfile(file)
+		_ = newLogfile(file, mongo)
 	}
 
 	// switch back to normal
@@ -85,5 +99,5 @@ func main() {
 	log.Println("read", totaljobs, "jobs from files on command line, now waiting...")
 
 	// wait
-	eventloop()
+	eventloop(mongo)
 }
