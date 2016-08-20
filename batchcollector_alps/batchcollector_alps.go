@@ -18,7 +18,7 @@ func todayname() string {
 }
 
 // eventloop prepares the inotify events and waits for them
-func eventloop(mongo *MongoDB) {
+func eventloop(mongo MongoInserter) {
 
 	// open current file
 	currentlog := newLogfile(todayname(), mongo)
@@ -84,7 +84,7 @@ func main() {
 	totaljobs = 0
 
 	// mongo setup
-	mongo := NewMongo()
+	mongo := NewAsynchMongo()
 
 	// switch of output for the files on command line
 	defaultOut := os.Stderr

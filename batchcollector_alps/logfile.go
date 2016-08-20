@@ -15,7 +15,7 @@ const unknownjob = "unknown_job"
 type Logfile struct {
 	name  string
 	file  *os.File
-	mongo *MongoDB
+	mongo MongoInserter
 }
 
 // get value from key value pairs where value is after key
@@ -40,7 +40,7 @@ func parsetime(line string) time.Time {
 }
 
 // newLogfile opens a file and reads to current end
-func newLogfile(name string, mongo *MongoDB) *Logfile {
+func newLogfile(name string, mongo MongoInserter) *Logfile {
 	file, err := os.Open(name)
 	if err != nil {
 		panic("could not open file" + name)
