@@ -69,13 +69,13 @@ func (d *devnull) Write(p []byte) (int, error) {
 func main() {
 
 	/*
-	    // profiling code
-	   	f, err := os.Create("profile")
-	   	if err != nil {
-	   		log.Fatal(err)
-	   	}
-	   	pprof.StartCPUProfile(f)
-	   	defer pprof.StopCPUProfile()
+		// profiling code
+		f, err := os.Create("profile")
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
 	*/
 
 	// init some stuff

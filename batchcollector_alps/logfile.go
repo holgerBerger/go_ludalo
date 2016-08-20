@@ -13,9 +13,10 @@ const unknownjob = "unknown_job"
 
 // Logfile is an open logfile
 type Logfile struct {
-	name  string
-	file  *os.File
-	mongo MongoInserter
+	name   string
+	file   *os.File
+	mongo  MongoInserter
+	reader *bufio.Reader
 }
 
 // get value from key value pairs where value is after key
@@ -45,8 +46,10 @@ func newLogfile(name string, mongo MongoInserter) *Logfile {
 	if err != nil {
 		panic("could not open file" + name)
 	}
-	logfile := Logfile{name, file, mongo}
+	reader := bufio.NewReaderSize(file, 1024*1024) // reader with 1MB buffer
+	logfile := Logfile{name, file, mongo, reader}
 	log.Println("opened new logfile", name)
+
 	logfile.readToEnd()
 
 	return &logfile
@@ -54,10 +57,9 @@ func newLogfile(name string, mongo MongoInserter) *Logfile {
 
 // readToEnd reads and process the file to the end
 func (l *Logfile) readToEnd() {
-	reader := bufio.NewReader(l.file)
 
 	for {
-		line, err := reader.ReadBytes('\n')
+		line, err := l.reader.ReadBytes('\n')
 		//fmt.Println(line)
 		if err != nil {
 			break
