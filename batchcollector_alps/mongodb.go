@@ -47,7 +47,7 @@ func (m *MongoDB) InsertJob(jobid string, start time.Time) {
 
 // AddJobInfo inserts a job into database
 func (m *MongoDB) AddJobInfo(jobid, uid, cmd, nids string) {
-	query := bson.M{"jobid": strings.Trim(jobid, "'")}
+	query := bson.M{"_id": strings.Trim(jobid, "'")}
 	change := bson.M{"$set": bson.M{"uid": uid, "cmd": cmd, "nids": nids}}
 	err := m.collection.Update(query, change)
 	if err != nil {
@@ -57,7 +57,7 @@ func (m *MongoDB) AddJobInfo(jobid, uid, cmd, nids string) {
 
 // EndJob inserts a job into database
 func (m *MongoDB) EndJob(jobid string, end time.Time) {
-	query := bson.M{"jobid": strings.Trim(jobid, "'")}
+	query := bson.M{"_id": strings.Trim(jobid, "'")}
 	change := bson.M{"$set": bson.M{"end": int32(end.Unix())}}
 	err := m.collection.Update(query, change)
 	if err != nil {

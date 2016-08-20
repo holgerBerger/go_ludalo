@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"runtime/pprof"
 	"time"
 
 	"golang.org/x/exp/inotify"
@@ -67,14 +69,12 @@ func (d *devnull) Write(p []byte) (int, error) {
 // main programm
 func main() {
 
-	/*
-		f, err := os.Create("profile")
-		if err != nil {
-			log.Fatal(err)
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-	*/
+	f, err := os.Create("profile")
+	if err != nil {
+		log.Fatal(err)
+	}
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
 
 	// init some stuff
 	readConf()
@@ -91,7 +91,12 @@ func main() {
 
 	// read files from commandline
 	for _, file := range os.Args[1:] {
-		_ = newLogfile(file, mongo)
+		if file != todayname() {
+			fmt.Println("silently processing", file)
+			_ = newLogfile(file, mongo)
+		} else {
+			fmt.Println("skipping", file)
+		}
 	}
 
 	// switch back to normal
@@ -99,5 +104,5 @@ func main() {
 	log.Println("read", totaljobs, "jobs from files on command line, now waiting...")
 
 	// wait
-	eventloop(mongo)
+	//eventloop(mongo)
 }
