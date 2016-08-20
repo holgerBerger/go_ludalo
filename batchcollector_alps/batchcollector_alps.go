@@ -101,6 +101,9 @@ func main() {
 		}
 	}
 
+	// stop worker
+	mongo.Shutdown()
+
 	// switch back to normal
 	log.SetOutput(defaultOut)
 	log.Println("read", totaljobs, "jobs from files on command line, now waiting...")
