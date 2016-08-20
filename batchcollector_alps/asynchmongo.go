@@ -18,6 +18,11 @@ type AsynchMongoDB struct {
 	shutdown   chan int
 }
 
+type updatepair struct {
+	query  bson.M
+	change bson.M
+}
+
 // NewAsynchMongo creates inserter and workers
 func NewAsynchMongo() *AsynchMongoDB {
 	mongo := new(AsynchMongoDB)
