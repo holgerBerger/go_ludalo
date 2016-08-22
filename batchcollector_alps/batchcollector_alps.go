@@ -12,6 +12,9 @@ import (
 var res2job *Res2job
 var totaljobs int64
 
+var Id string
+var Hash string
+
 func todayname() string {
 	// format: "Mon Jan 2 15:04:05 -0700 MST 2006"
 	return config.WatchDirectory + "/" + config.FilePrefix + time.Now().Format("20060102")
@@ -67,6 +70,8 @@ func (d *devnull) Write(p []byte) (int, error) {
 
 // main programm
 func main() {
+
+	fmt.Println("batchcollector_alps - build:", Id, Hash)
 
 	/*
 		// profiling code

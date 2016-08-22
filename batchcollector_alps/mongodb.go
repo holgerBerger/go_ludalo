@@ -64,3 +64,8 @@ func (m *MongoDB) EndJob(jobid string, end time.Time) {
 		// log.Println("could not update", jobid)
 	}
 }
+
+// Shutdown dummy for synch inserter
+func (m *MongoDB) Shutdown() {
+
+}
