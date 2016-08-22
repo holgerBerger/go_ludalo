@@ -1,5 +1,7 @@
 package main
 
+// AsynchMongoDB is usually slower, not worth the effort
+
 import (
 	"strings"
 	"time"
@@ -13,7 +15,7 @@ type AsynchMongoDB struct {
 	session    *mgo.Session
 	db         *mgo.Database
 	collection *mgo.Collection
-	insert     chan bson.M
+	insert     chan Jobentry
 	update     chan updatepair
 	shutdown   chan int
 }
@@ -36,7 +38,7 @@ func NewAsynchMongo() *AsynchMongoDB {
 	mongo.db = mongo.session.DB(config.MongoDB)
 	mongo.collection = mongo.db.C(config.Collection)
 
-	mongo.insert = make(chan bson.M)
+	mongo.insert = make(chan Jobentry)
 	mongo.update = make(chan updatepair)
 	mongo.shutdown = make(chan int)
 
@@ -69,16 +71,21 @@ func (m *AsynchMongoDB) Shutdown() {
 
 // InsertJob inserts a job into database
 func (m *AsynchMongoDB) InsertJob(jobid string, start time.Time) {
-	m.insert <- bson.M{
-		"_id":   strings.Trim(jobid, "'"),
-		"jobid": strings.Trim(jobid, "'"),
-		"owner": "",
-		"start": int32(start.Unix()),
-		"end":   -1,
-		"nids":  "",
-		"cmd":   "",
-		"calc":  -1,
+	m.insert <- Jobentry{
+		strings.Trim(jobid, "'"),
+		strings.Trim(jobid, "'"),
+		"",
+		int32(start.Unix()),
+		-1,
+		"",
+		"",
+		-1,
 	}
+}
+
+// InsertCompleteJob inserts a filled jobentry struct
+func (m *AsynchMongoDB) InsertCompleteJob(job Jobentry) {
+	m.insert <- job
 }
 
 // AddJobInfo inserts a job into database

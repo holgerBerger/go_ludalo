@@ -1,11 +1,16 @@
+// +build alps
+
 package main
 
 /*
   persistent mapping from resid to jobid
   uses leveldb
+	is not required for non-alps build
 */
 
 import (
+	"fmt"
+
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
@@ -18,6 +23,7 @@ type Res2job struct {
 func NewRes2job(name string) *Res2job {
 	db, err := leveldb.OpenFile(name, nil)
 	if err != nil {
+		fmt.Println(err)
 		panic("could not open cache for jobmappings.")
 	}
 	res2job := new(Res2job)

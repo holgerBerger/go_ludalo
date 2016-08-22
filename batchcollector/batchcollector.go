@@ -10,10 +10,15 @@ import (
 	"golang.org/x/exp/inotify"
 )
 
-var res2job *Res2job
-var totaljobs int64
+var (
+	totaljobs int64
+	res2job   *Res2job
+)
 
-var Id string
+// BuildID contains Build Date
+var BuildID string
+
+// Hash contains git hash of commit
 var Hash string
 
 // logfile types
@@ -89,17 +94,6 @@ func (d *devnull) Write(p []byte) (int, error) {
 // main programm
 func main() {
 
-	fmt.Println("batchcollector_alps - build:", Id, Hash)
-
-	// runtime switch which logfiles we read
-	if strings.Index(os.Args[0], "batchcollector_alps") > 0 {
-		logtype = ALPS
-	} else if strings.Index(os.Args[0], "batchcollector_torque") > 0 {
-		logtype = TORQUE
-	} else {
-		panic("unknown logfile type")
-	}
-
 	/*
 		// profiling code
 		f, err := os.Create("profile")
@@ -110,14 +104,32 @@ func main() {
 		defer pprof.StopCPUProfile()
 	*/
 
+	fmt.Println("batchcollector_alps - build:", BuildID, Hash)
+
+	// runtime switch which logfiles we read
+	if strings.Index(os.Args[0], "batchcollector_alps") > 0 {
+		logtype = ALPS
+		fmt.Println("alps mode")
+	} else if strings.Index(os.Args[0], "batchcollector_torque") > 0 {
+		logtype = TORQUE
+		fmt.Println("torque mode")
+	} else {
+		panic("unknown logfile type, executable should be called either batchcollector_alps or batchcollector_torque!")
+	}
+
 	// init some stuff
-	readConf()
-	res2job = NewRes2job("res2job.db")
+	if logtype == ALPS {
+		readConf("batchcollector_alps.conf")
+	} else {
+		readConf("batchcollector_torque.conf")
+	}
+
 	totaljobs = 0
 
 	// mongo setup
-	//mongo := NewAsynchMongo()
-	mongo := NewMongo()
+	// async is not faster with merging opt, can be avoided
+	mongo := NewAsynchMongo()
+	// mongo := NewMongo()
 
 	// switch of output for the files on command line
 	defaultOut := os.Stderr

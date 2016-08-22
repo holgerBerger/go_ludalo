@@ -15,6 +15,18 @@ type MongoDB struct {
 	collection *mgo.Collection
 }
 
+// Jobentry mongo document
+type Jobentry struct {
+	ID    string `bson:"_id,omitempty"`
+	Jobid string `bson:"jobid"`
+	Owner string `bson:"owner"`
+	Start int32  `bson:"start"`
+	End   int32  `bson:"end"`
+	Cmd   string `bson:"cmd"`
+	Nids  string `bson:"nids"`
+	Calc  int    `bson:"calc"`
+}
+
 // NewMongo creates db connection
 func NewMongo() *MongoDB {
 	mongo := new(MongoDB)
@@ -43,6 +55,11 @@ func (m *MongoDB) InsertJob(jobid string, start time.Time) {
 		"cmd":   "",
 		"calc":  -1,
 	})
+}
+
+// InsertCompleteJob inserts a filled jobentry struct
+func (m *MongoDB) InsertCompleteJob(job Jobentry) {
+	m.collection.Insert(&job)
 }
 
 // AddJobInfo inserts a job into database

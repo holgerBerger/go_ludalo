@@ -8,6 +8,7 @@ import (
 
 const unknownjob = "unknown_job"
 
+// LogFileReader is the interface for ALPS und Torque lofeile readers
 type LogFileReader interface {
 	readToEnd()
 	getName() string
