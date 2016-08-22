@@ -6,48 +6,24 @@ import (
 	"log"
 	"os"
 	"strings"
-	"time"
 )
 
-const unknownjob = "unknown_job"
-
 // Logfile is an open logfile
-type Logfile struct {
+type AlpsLogfile struct {
 	name   string
 	file   *os.File
 	mongo  MongoInserter
 	reader *bufio.Reader
 }
 
-// get value from key value pairs where value is after key
-func getvalue(tokens [][]byte, key string) string {
-	for i := range tokens {
-		if bytes.Compare(tokens[i], []byte(key)) == 0 {
-			return string(tokens[i+1])
-		}
-	}
-	return ""
-}
-
-// parsetime from a string, in the format of alps scheduler log
-func parsetime(line string) time.Time {
-	// ex:  2016-08-19T00:16:57.339913+02:00
-	fmt := "2006-01-02T15:04:05.999999-07:00"
-	t, err := time.Parse(fmt, line)
-	if err != nil {
-		log.Println("could not parse time in", line, err)
-	}
-	return t
-}
-
 // newLogfile opens a file and reads to current end
-func newLogfile(name string, mongo MongoInserter) *Logfile {
+func newAlpsLogfile(name string, mongo MongoInserter) *AlpsLogfile {
 	file, err := os.Open(name)
 	if err != nil {
 		panic("could not open file" + name)
 	}
 	reader := bufio.NewReaderSize(file, 1024*1024) // reader with 1MB buffer
-	logfile := Logfile{name, file, mongo, reader}
+	logfile := AlpsLogfile{name, file, mongo, reader}
 	log.Println("opened new logfile", name)
 
 	logfile.readToEnd()
@@ -55,8 +31,12 @@ func newLogfile(name string, mongo MongoInserter) *Logfile {
 	return &logfile
 }
 
+func (l *AlpsLogfile) getName() string {
+	return l.name
+}
+
 // readToEnd reads and process the file to the end
-func (l *Logfile) readToEnd() {
+func (l *AlpsLogfile) readToEnd() {
 
 	for {
 		line, err := l.reader.ReadBytes('\n')

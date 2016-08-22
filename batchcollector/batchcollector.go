@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"golang.org/x/exp/inotify"
@@ -15,6 +16,12 @@ var totaljobs int64
 var Id string
 var Hash string
 
+// logfile types
+const (
+	ALPS   = iota
+	TORQUE = iota
+)
+
 func todayname() string {
 	// format: "Mon Jan 2 15:04:05 -0700 MST 2006"
 	return config.WatchDirectory + "/" + config.FilePrefix + time.Now().Format("20060102")
@@ -23,9 +30,14 @@ func todayname() string {
 // eventloop prepares the inotify events and waits for them
 func eventloop(mongo MongoInserter) {
 
-	// open current file
-	currentlog := newLogfile(todayname(), mongo)
+	var currentlog LogFileReader
 
+	// open current file
+	if logtype == ALPS {
+		currentlog = newAlpsLogfile(todayname(), mongo)
+	} else {
+		currentlog = newTorqueLogfile(todayname(), mongo)
+	}
 	watcher, err := inotify.NewWatcher()
 	if err != nil {
 		log.Fatal(err)
@@ -43,13 +55,17 @@ func eventloop(mongo MongoInserter) {
 				// if a file is created, check if it is same file or not, and if it could be
 				// todays file
 				//if ev.Name != currentlog.name && ev.Name == "testdata/apsched-c2-0c0s0n1-20160820" {
-				if ev.Name != currentlog.name && ev.Name == todayname() {
+				if ev.Name != currentlog.getName() && ev.Name == todayname() {
 					currentlog.readToEnd() // read rest of file in case we missed something
-					currentlog = newLogfile(ev.Name, mongo)
+					if logtype == ALPS {
+						currentlog = newAlpsLogfile(ev.Name, mongo)
+					} else {
+						currentlog = newTorqueLogfile(ev.Name, mongo)
+					}
 				}
 			} else if (ev.Mask & inotify.IN_MODIFY) > 0 {
 				// if a file is updated, read file to end if it is current file
-				if ev.Name == currentlog.name {
+				if ev.Name == currentlog.getName() {
 					currentlog.readToEnd()
 				}
 			} else {
@@ -64,6 +80,8 @@ func eventloop(mongo MongoInserter) {
 // dummy writer implements writer interface
 type devnull int
 
+var logtype int
+
 func (d *devnull) Write(p []byte) (int, error) {
 	return len(p), nil
 }
@@ -72,6 +90,15 @@ func (d *devnull) Write(p []byte) (int, error) {
 func main() {
 
 	fmt.Println("batchcollector_alps - build:", Id, Hash)
+
+	// runtime switch which logfiles we read
+	if strings.Index(os.Args[0], "batchcollector_alps") > 0 {
+		logtype = ALPS
+	} else if strings.Index(os.Args[0], "batchcollector_torque") > 0 {
+		logtype = TORQUE
+	} else {
+		panic("unknown logfile type")
+	}
 
 	/*
 		// profiling code
@@ -97,11 +124,18 @@ func main() {
 	null := new(devnull)
 	log.SetOutput(null)
 
+	readsomething := false
+
 	// read files from commandline
 	for _, file := range os.Args[1:] {
 		if file != todayname() {
 			fmt.Println("silently processing", file)
-			_ = newLogfile(file, mongo)
+			if logtype == ALPS {
+				_ = newAlpsLogfile(file, mongo)
+			} else {
+				_ = newTorqueLogfile(file, mongo)
+			}
+			readsomething = true
 		} else {
 			fmt.Println("skipping", file)
 		}
@@ -112,7 +146,9 @@ func main() {
 
 	// switch back to normal
 	log.SetOutput(defaultOut)
-	log.Println("read", totaljobs, "jobs from files on command line, now waiting...")
+	if readsomething {
+		log.Println("read", totaljobs, "jobs from files on command line, now waiting...")
+	}
 
 	// wait
 	eventloop(mongo)
