@@ -53,7 +53,7 @@ func eventloop(mongo MongoInserter) {
 					currentlog.readToEnd()
 				}
 			} else {
-				log.Println("inotify event:", ev)
+				// log.Println("inotify event:", ev)
 			}
 		case err := <-watcher.Error:
 			log.Println("inotify error:", err)
@@ -89,7 +89,8 @@ func main() {
 	totaljobs = 0
 
 	// mongo setup
-	mongo := NewAsynchMongo()
+	//mongo := NewAsynchMongo()
+	mongo := NewMongo()
 
 	// switch of output for the files on command line
 	defaultOut := os.Stderr
