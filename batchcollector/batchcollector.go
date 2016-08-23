@@ -140,8 +140,8 @@ func main() {
 
 	// mongo setup
 	// async is not faster with merging opt, can be avoided
-	mongo := NewAsynchMongo()
-	// mongo := NewMongo()
+	// mongo := NewAsynchMongo()
+	mongo := NewMongo()
 
 	// switch of output for the files on command line
 	defaultOut := os.Stderr
