@@ -91,7 +91,7 @@ func (m *AsynchMongoDB) InsertCompleteJob(job Jobentry) {
 // AddJobInfo inserts a job into database
 func (m *AsynchMongoDB) AddJobInfo(jobid, uid, cmd, nids string) {
 	query := bson.M{"_id": strings.Trim(jobid, "'")}
-	change := bson.M{"$set": bson.M{"uid": uid, "cmd": strings.Trim(cmd, "'"), "nids": nids}}
+	change := bson.M{"$set": bson.M{"owner": uid, "cmd": strings.Trim(cmd, "'"), "nids": nids}}
 	m.update <- updatepair{query, change}
 }
 

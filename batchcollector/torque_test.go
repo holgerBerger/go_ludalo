@@ -11,7 +11,7 @@ import (
 )
 
 // TestSimple1 tests a simple entry from a file
-func TestSimple1(t *testing.T) {
+func TestTorqueSimple1(t *testing.T) {
 	readConf("testinput/torque.config")
 
 	mongo := NewMongo()
@@ -22,7 +22,7 @@ func TestSimple1(t *testing.T) {
 	log.SetOutput(null)
 
 	// read file
-	_ = newTorqueLogfile("testinput/Simple1", mongo)
+	_ = newTorqueLogfile("testinput/Simple1Torque", mongo)
 
 	// get db entry
 	result := Jobentry{}
@@ -54,7 +54,7 @@ func TestSimple1(t *testing.T) {
 }
 
 // TestEvent1 tests the event loop writing in background into todayfile()
-func TestEvent1(t *testing.T) {
+func TestTorqueEvent1(t *testing.T) {
 
 	QUIT = make(chan int)
 
@@ -69,7 +69,7 @@ func TestEvent1(t *testing.T) {
 	null := new(devnull)
 	log.SetOutput(null)
 
-	fin, err := os.Open("testinput/Simple1")
+	fin, err := os.Open("testinput/Simple1Torque")
 	if err != nil {
 		panic(err)
 	}

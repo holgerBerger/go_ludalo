@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"strings"
 	"time"
 
@@ -65,10 +66,10 @@ func (m *MongoDB) InsertCompleteJob(job Jobentry) {
 // AddJobInfo inserts a job into database
 func (m *MongoDB) AddJobInfo(jobid, uid, cmd, nids string) {
 	query := bson.M{"_id": strings.Trim(jobid, "'")}
-	change := bson.M{"$set": bson.M{"uid": uid, "cmd": strings.Trim(cmd, "'"), "nids": nids}}
+	change := bson.M{"$set": bson.M{"owner": uid, "cmd": strings.Trim(cmd, "'"), "nids": nids}}
 	err := m.collection.Update(query, change)
 	if err != nil {
-		// log.Println("could not update", jobid)
+		log.Println("could not update", jobid)
 	}
 }
 
