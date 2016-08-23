@@ -27,6 +27,9 @@ const (
 	TORQUE = iota
 )
 
+// channel for ending endless eventloop (needed for testing)
+var QUIT chan int
+
 func todayname() string {
 	// format: "Mon Jan 2 15:04:05 -0700 MST 2006"
 	return config.WatchDirectory + "/" + config.FilePrefix + time.Now().Format("20060102")
@@ -53,8 +56,11 @@ func eventloop(mongo MongoInserter) {
 		log.Fatal(err)
 	}
 
+	// endless event loop, can be ended by QUIT channel
 	for {
+
 		select {
+
 		case ev := <-watcher.Event:
 			if (ev.Mask & inotify.IN_CREATE) > 0 {
 				// if a file is created, check if it is same file or not, and if it could be
@@ -76,10 +82,16 @@ func eventloop(mongo MongoInserter) {
 			} else {
 				// log.Println("inotify event:", ev)
 			}
+
 		case err := <-watcher.Error:
 			log.Println("inotify error:", err)
+
+		case <-QUIT: // end for testing
+			return
 		}
+
 	}
+
 }
 
 // dummy writer implements writer interface

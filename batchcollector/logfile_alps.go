@@ -21,7 +21,7 @@ type AlpsLogfile struct {
 func newAlpsLogfile(name string, mongo MongoInserter) *AlpsLogfile {
 	file, err := os.Open(name)
 	if err != nil {
-		panic("could not open file" + name)
+		panic("could not open file " + name)
 	}
 	reader := bufio.NewReaderSize(file, 1024*1024) // reader with 1MB buffer
 	if res2job == nil {
