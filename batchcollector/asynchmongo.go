@@ -3,12 +3,15 @@ package main
 // AsynchMongoDB is usually slower, not worth the effort
 
 import (
+	"log"
 	"strings"
 	"time"
 
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
+
+const retryUpcount = 30
 
 // AsynchMongoDB is a mongo connection and methods to insert data into db
 type AsynchMongoDB struct {
@@ -52,9 +55,36 @@ func (m *AsynchMongoDB) AsynchWorker() {
 	for {
 		select {
 		case data := <-m.insert: // we flush updates and insert
-			m.collection.Insert(data)
+			//log.Println(data)
+			var delay time.Duration
+			delay = 1
+		retryInsert:
+			err := m.collection.Insert(data)
+			//if err != nil {
+			//log.Println(err.Error())
+			//}
+			if err != nil && !mgo.IsDup(err) && (strings.Contains(err.Error(), "no reachable") || err.Error() == "EOF") && delay < retryUpcount {
+				log.Println("    error in insert, refreshing session and waiting...", err, delay*time.Second)
+				m.session.Refresh()
+				time.Sleep(delay * time.Second)
+				delay += 1
+				goto retryInsert
+			}
 		case data := <-m.update: // we flush inserts and update
-			m.collection.Update(data.query, data.change)
+			var delay time.Duration
+			delay = 1
+		retryUpdate:
+			err := m.collection.Update(data.query, data.change)
+			//if err != nil {
+			//log.Println(err.Error())
+			//}
+			if err != nil && (strings.Contains(err.Error(), "no reachable") || err.Error() == "EOF") && delay < retryUpcount {
+				log.Println("    error in update, refreshing session and waiting...", err, delay*time.Second)
+				m.session.Refresh()
+				time.Sleep(delay * time.Second)
+				delay += 1
+				goto retryUpdate
+			}
 		case <-m.shutdown: // we flush all data
 			m.shutdown <- 1
 			return

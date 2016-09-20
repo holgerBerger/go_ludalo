@@ -140,8 +140,8 @@ func main() {
 
 	// mongo setup
 	// async is not faster with merging opt, can be avoided
-	// mongo := NewAsynchMongo()
-	mongo := NewMongo()
+	mongo := NewAsynchMongo()
+	// mongo := NewMongo()
 
 	// switch of output for the files on command line
 	defaultOut := os.Stderr
@@ -165,9 +165,6 @@ func main() {
 		}
 	}
 
-	// stop worker
-	mongo.Shutdown()
-
 	// switch back to normal
 	log.SetOutput(defaultOut)
 	if readsomething {
@@ -176,4 +173,7 @@ func main() {
 
 	// wait
 	eventloop(mongo)
+
+	// stop worker
+	mongo.Shutdown()
 }
