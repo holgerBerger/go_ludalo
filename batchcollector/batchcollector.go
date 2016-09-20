@@ -116,7 +116,7 @@ func main() {
 		defer pprof.StopCPUProfile()
 	*/
 
-	fmt.Println("batchcollector_alps - build:", BuildID, Hash)
+	fmt.Println("batchcollector - build:", BuildID, Hash)
 
 	// runtime switch which logfiles we read
 	if strings.Index(os.Args[0], "batchcollector_alps") > 0 {
