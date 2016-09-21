@@ -11,12 +11,6 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-// parameters for retry
-const (
-	retryCount = 30
-	retryDelay = 5
-)
-
 // AsynchMongoDB is a mongo connection and methods to insert data into db
 type AsynchMongoDB struct {
 	session    *mgo.Session
@@ -60,30 +54,28 @@ func (m *AsynchMongoDB) AsynchWorker() {
 		select {
 		case data := <-m.insert: // we flush updates and insert
 			//log.Println(data)
-			var delay time.Duration
-			delay = 1
+			var delay = 1
 		retryInsert:
 			err := m.collection.Insert(data)
 			//if err != nil {
 			//log.Println(err.Error())
 			//}
 			if err != nil && !mgo.IsDup(err) && (strings.Contains(err.Error(), "no reachable") || err.Error() == "EOF") && delay < retryCount {
-				log.Println("    error in insert, refreshing session and waiting...", err, delay)
+				log.Println("    error in insert, refreshing session and waiting...", err, delay, "/", retryCount)
 				m.session.Refresh()
 				time.Sleep(retryDelay * time.Second)
 				delay += 1
 				goto retryInsert
 			}
 		case data := <-m.update: // we flush inserts and update
-			var delay time.Duration
-			delay = 1
+			var delay = 1
 		retryUpdate:
 			err := m.collection.Update(data.query, data.change)
 			//if err != nil {
 			//log.Println(err.Error())
 			//}
 			if err != nil && (strings.Contains(err.Error(), "no reachable") || err.Error() == "EOF") && delay < retryCount {
-				log.Println("    error in update, refreshing session and waiting...", err, delay)
+				log.Println("    error in update, refreshing session and waiting...", err, delay, "/", retryCount)
 				m.session.Refresh()
 				time.Sleep(retryDelay * time.Second)
 				delay += 1
