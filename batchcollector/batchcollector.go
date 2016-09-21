@@ -7,8 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jessevdk/go-flags"
 	"golang.org/x/exp/inotify"
 )
+
+var opts struct {
+	Early bool `long:"early-exit" short:"e" description:"exit after reading files from commandline, do not wait for updates."`
+}
 
 var (
 	totaljobs int64
@@ -116,6 +121,12 @@ func main() {
 		defer pprof.StopCPUProfile()
 	*/
 
+	// option parsing
+	args, err := flags.Parse(&opts)
+	if err != nil {
+		os.Exit(1)
+	}
+
 	fmt.Println("batchcollector - build:", BuildID, Hash)
 
 	// runtime switch which logfiles we read
@@ -151,7 +162,7 @@ func main() {
 	readsomething := false
 
 	// read files from commandline
-	for _, file := range os.Args[1:] {
+	for _, file := range args {
 		if file != todayname() {
 			fmt.Println("silently processing", file)
 			if logtype == ALPS {
@@ -168,12 +179,14 @@ func main() {
 	// switch back to normal
 	log.SetOutput(defaultOut)
 	if readsomething {
-		log.Println("read", totaljobs, "jobs from files on command line, now waiting...")
+		log.Println("read", totaljobs, "jobs from files on command line.")
 	}
 
-	// wait
-	eventloop(mongo)
-
+	if !opts.Early {
+		// wait
+		log.Println("now waiting for updates...")
+		eventloop(mongo)
+	}
 	// stop worker
 	mongo.Shutdown()
 }
