@@ -8,11 +8,17 @@ package main
 
 import (
 	"fmt"
-	"github.com/holgerBerger/go_ludalo/lustreserver"
 	"os"
+
+	"github.com/holgerBerger/go_ludalo/lustreserver"
 )
 
 func main() {
+
+	if len(os.Args) < 2 {
+		fmt.Printf("bailing out, no RPC port specified")
+		os.Exit(1)
+	}
 
 	hostname, _ := os.Hostname()
 	fmt.Printf("go collector running on " + hostname + "\n")
@@ -38,5 +44,5 @@ func main() {
 	lustreserver.MakeMdsRPC()
 
 	// here we block endless
-	lustreserver.StartServer()
+	lustreserver.StartServer(os.Args[1])
 }

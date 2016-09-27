@@ -167,7 +167,7 @@ func spawnCollector(c string) {
 
 		log.Println("starting collector on " + c)
 		count++
-		out, err := exec.Command("ssh", c, conf.Collector.CollectorPath).CombinedOutput()
+		out, err := exec.Command("ssh", c, conf.Collector.CollectorPath, strconv.Itoa(conf.Collector.Port)).CombinedOutput()
 		if err != nil {
 			log.Println("error: unexpected end on " + c)
 			log.Println(string(out))
@@ -702,7 +702,7 @@ func main() {
 
 	// RPC server
 	OssData = make(map[string]lustreserver.OstValues)
-	go startServer(conf.Collector.Port)
+	go startServer()
 
 	// do work
 	aggrRun(session)
