@@ -702,7 +702,7 @@ func main() {
 
 	// RPC server
 	OssData = make(map[string]lustreserver.OstValues)
-	go startServer()
+	go startServer(conf.Collector.Port)
 
 	// do work
 	aggrRun(session)

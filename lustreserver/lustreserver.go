@@ -154,8 +154,8 @@ func MakeOssRPC() {
 }
 
 // StartServer starts the HTTP RPC server
-func StartServer() {
-	l, e := net.Listen("tcp", "0.0.0.0:1234") // FIXME get port from config file
+func StartServer(port int) {
+	l, e := net.Listen("tcp", "0.0.0.0:"+strconv.Itoa(port))
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
