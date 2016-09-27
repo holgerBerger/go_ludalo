@@ -19,10 +19,7 @@ package main
 
 import (
 	"bufio"
-	"github.com/BurntSushi/toml"
-	"github.com/holgerBerger/go_ludalo/lustreserver"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
+	"fmt"
 	"log"
 	"net/rpc"
 	"os"
@@ -31,6 +28,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/BurntSushi/toml"
+	"github.com/holgerBerger/go_ludalo/lustreserver"
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
 )
 
 // config file definition
@@ -331,10 +333,16 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 			names := strings.Split(ost, "-")
 			fsname := names[0]
 			ostname := names[1]
+
+			// we add year+month to the collection name to keep collections smaller
+			now := time.Now()
+			fsname = fmt.Sprintf("%s-%2.2d%4.4d", fsname, now.Month(), now.Year())
+
 			// we cache mongo collections here, not created each time
 			_, ok := collections[fsname]
 			if !ok {
 				collections[fsname] = db.C(fsname)
+				collections[fsname].EnsureIndexKey("ts", "nid")
 			}
 			collection := collections[fsname]
 
@@ -428,10 +436,16 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 			names := strings.Split(mdt, "-")
 			fsname := names[0]
 			mdtname := names[1]
+
+			// we add year+month to the collection name to keep collections smaller
+			now := time.Now()
+			fsname = fmt.Sprintf("%s-%2.2d%4.4d", fsname, now.Month(), now.Year())
+
 			// we cache mongo collections here, not created each time
 			_, ok := collections[fsname]
 			if !ok {
 				collections[fsname] = db.C(fsname)
+				collections[fsname].EnsureIndexKey("ts", "nid")
 			}
 			collection := collections[fsname]
 

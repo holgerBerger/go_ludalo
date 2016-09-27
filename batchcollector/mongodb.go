@@ -47,6 +47,9 @@ func NewMongo() *MongoDB {
 	mongo.db = mongo.session.DB(config.MongoDB)
 	mongo.collection = mongo.db.C(config.Collection)
 
+	mongo.collection.EnsureIndexKey("start", "end")
+	mongo.collection.EnsureIndexKey("jobid")
+
 	return mongo
 }
 
