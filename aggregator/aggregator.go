@@ -73,6 +73,25 @@ type hostfile struct {
 	re      *regexp.Regexp
 }
 
+// types for mongo inserts
+type ostData struct {
+	ID  string     `bson:"_id,omitempty"`
+	Ts  int        `bson:"ts"`
+	Ost string     `bson:"ost"`
+	Nid string     `bson:"nid"`
+	V   [4]float32 `bson:"v"`
+	Dt  int32      `bson:"dt"`
+}
+
+type mdsData struct {
+	ID  string `bson:"_id,omitempty"`
+	Ts  int    `bson:"ts"`
+	Mdt string `bson:"mdt"`
+	Nid string `bson:"nid"`
+	V   int    `bson:"v"`
+	Dt  int32  `bson:"dt"`
+}
+
 // glocal config read in main
 var (
 	conf    configT
@@ -360,12 +379,22 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 
 			// insert aggregate data for OST
 			insertItems++
-			err := collection.Insert(bson.D{{"ts", int(v.Timestamp)},
-				{"ost", ostname},
-				{"nid", "aggr"},
-				{"v", vals},
-				{"dt", v.Delta},
+			/*
+				err := collection.Insert(bson.D{{"ts", int(v.Timestamp)},
+					{"ost", ostname},
+					{"nid", "aggr"},
+					{"v", vals},
+					{"dt", v.Delta},
+				})
+			*/
+
+			err := collection.Insert(ostData{"", int(v.Timestamp),
+				ostname,
+				"aggr",
+				vals,
+				v.Delta,
 			})
+
 			if err != nil {
 				log.Println("WARNING: insert error in ossInsert for", server)
 				log.Println(err)
@@ -387,12 +416,22 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 				}
 
 				insertItems++
-				err := collection.Insert(bson.D{{"ts", int(v.Timestamp)},
-					{"ost", ostname},
-					{"nid", nidname},
-					{"v", vals},
-					{"dt", v.Delta},
+				/*
+					err := collection.Insert(bson.D{{"ts", int(v.Timestamp)},
+						{"ost", ostname},
+						{"nid", nidname},
+						{"v", vals},
+						{"dt", v.Delta},
+					})
+				*/
+
+				err := collection.Insert(ostData{"", int(v.Timestamp),
+					ostname,
+					nidname,
+					vals,
+					v.Delta,
 				})
+
 				if err != nil {
 					log.Println("WARNING: insert error in ossInsert for", server)
 					log.Println(err)
@@ -462,12 +501,22 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 
 			// insert aggregate data for OST
 			insertItems++
-			err := collection.Insert(bson.D{{"ts", int(v.Timestamp)},
-				{"mdt", mdtname},
-				{"nid", "aggr"},
-				{"v", vals},
-				{"dt", v.Delta},
+			/*
+				err := collection.Insert(bson.D{{"ts", int(v.Timestamp)},
+					{"mdt", mdtname},
+					{"nid", "aggr"},
+					{"v", vals},
+					{"dt", v.Delta},
+				})
+			*/
+
+			err := collection.Insert(mdsData{"", int(v.Timestamp),
+				mdtname,
+				"aggr",
+				vals,
+				v.Delta,
 			})
+
 			if err != nil {
 				log.Println("WARNING: insert error in mdsInsert for", server)
 				log.Println(err)
@@ -485,12 +534,23 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 				}
 
 				insertItems++
-				err := collection.Insert(bson.D{{"ts", int(v.Timestamp)},
-					{"mdt", mdtname},
-					{"nid", nidname},
-					{"v", vals},
-					{"dt", v.Delta},
+
+				/*
+					err := collection.Insert(bson.D{{"ts", int(v.Timestamp)},
+						{"mdt", mdtname},
+						{"nid", nidname},
+						{"v", vals},
+						{"dt", v.Delta},
+					})
+				*/
+
+				err := collection.Insert(mdsData{"", int(v.Timestamp),
+					mdtname,
+					nidname,
+					vals,
+					v.Delta,
 				})
+
 				if err != nil {
 					log.Println("WARNING: insert error in mdsInsert for", server)
 					log.Println(err)
