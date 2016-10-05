@@ -48,6 +48,15 @@ type OstStats struct {
 	WRqs, WBs, RRqs, RBs int64
 }
 
+// MdsStats
+//  opens = Opens (contains creates for old lustre versions < 2.9)
+//  creates = mknod, will include create in later lustre versions >= 2.9
+//  queries = not updating calls, like close and stats
+//  updates = renames, removes, setattr etc
+type MdsStats struct {
+	Opens, Creates, Queries, Updates int64
+}
+
 // MdsValues contains maps with total values for each MDT and for values each nid for each MDT
 type MdsValues struct {
 	Timestamp int32 // will be filled by aggregator and is used to transfer difference
@@ -424,6 +433,45 @@ func readMdsStatfile(filename string) int64 {
 				nr := len(fields)
 				v, _ = strconv.ParseInt(fields[nr-3], 10, 64)
 				requests += v
+			}
+			line, isPrefix, err = r.ReadLine()
+		}
+
+		f.Close()
+		// fmt.Printf("%s %v\n",filename, requests)
+	}
+	return requests
+}
+
+// read MDS performance values from file, return 64bit number of requests
+func readMdsStatfileV2(filename string) MdsStats {
+	var requests MdsStats
+	var v int64
+	f, err := os.Open(filename)
+	if err == nil {
+		r := bufio.NewReader(f)
+
+		line, isPrefix, err := r.ReadLine()
+		for err == nil && !isPrefix {
+			s := string(line)
+
+			if strings.Index(s, "samples") != -1 {
+				fields := strings.Fields(s)
+				nr := len(fields)
+				v, _ = strconv.ParseInt(fields[nr-3], 10, 64)
+				if fields[0] == "open" {
+					requests.Opens += v
+				} else if fields[0] == "mknod" {
+					requests.Creates += v
+				} else if (strings.Index(fields[0], "dir") != -1) ||
+					(strings.Index(fields[0], "set") != -1) ||
+					(strings.Index(fields[0], "rename") != -1) ||
+					fields[0] == "unlink" || fields[0] == "sync" {
+					requests.Updates += v
+				} else {
+					requests.Queries += v
+				}
+
 			}
 			line, isPrefix, err = r.ReadLine()
 		}
