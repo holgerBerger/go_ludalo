@@ -27,6 +27,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -80,6 +81,7 @@ var (
 
 // global variables for timing
 var (
+	timingLock     sync.Mutex
 	collectTimes   map[string]float32
 	insertTimes    map[string]float32
 	insertMDSItems map[string]int32
@@ -230,7 +232,9 @@ func ossCollect(server string, signal chan int, inserter chan lustreserver.OstVa
 			}
 			replyOSS.Timestamp = int32(timestamp)
 			t2 := time.Now()
+			timingLock.Lock()
 			collectTimes[server] = float32(t2.Sub(t1).Seconds())
+			timingLock.Unlock()
 
 			// copy data for RPC server
 			OssData[server] = replyOSS
@@ -296,7 +300,9 @@ func mdsCollect(server string, signal chan int, inserter chan lustreserver.MdsVa
 			}
 			replyMDS.Timestamp = int32(timestamp)
 			t2 := time.Now()
+			timingLock.Lock()
 			collectTimes[server] = float32(t2.Sub(t1).Seconds())
+			timingLock.Unlock()
 
 			inserter <- replyMDS
 
@@ -409,8 +415,10 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 
 		t2 := time.Now()
 
+		timingLock.Lock()
 		insertTimes[server] = float32(t2.Sub(t1).Seconds())
 		insertOSSItems[server] = insertItems
+		timingLock.Unlock()
 		// log.Println(server, "mongo insert", t2.Sub(t1).Seconds(), "secs")
 	}
 }
@@ -492,8 +500,10 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 		}
 		t2 := time.Now()
 
+		timingLock.Lock()
 		insertTimes[server] = float32(t2.Sub(t1).Seconds())
 		insertMDSItems[server] = insertItems
+		timingLock.Unlock()
 		// log.Println(server, "mongo insert", t2.Sub(t1).Seconds(), "secs")
 	}
 }
