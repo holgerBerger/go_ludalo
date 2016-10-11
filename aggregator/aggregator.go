@@ -450,6 +450,7 @@ func ossInsert(server string, inserter chan lustreserver.OstValues, session *mgo
 		if err != nil {
 			log.Println("WARNING: error in update of last timestamp")
 			log.Println(err)
+			session.Refresh()
 		}
 
 		t2 := time.Now()
