@@ -84,12 +84,12 @@ type ostData struct {
 }
 
 type mdsData struct {
-	ID  string `bson:"_id,omitempty"`
-	Ts  int    `bson:"ts"`
-	Mdt string `bson:"mdt"`
-	Nid string `bson:"nid"`
-	V   int    `bson:"v"`
-	Dt  int32  `bson:"dt"`
+	ID  string   `bson:"_id,omitempty"`
+	Ts  int      `bson:"ts"`
+	Mdt string   `bson:"mdt"`
+	Nid string   `bson:"nid"`
+	V   [4]int32 `bson:"v"`
+	Dt  int32    `bson:"dt"`
 }
 
 // glocal config read in main
@@ -469,7 +469,7 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 	// cache for collections
 	collections := make(map[string]*mgo.Collection)
 
-	var vals int
+	var vals [4]int32
 	var insertItems int32
 
 	for {
@@ -497,7 +497,10 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 			collection := collections[fsname]
 
 			// temp array to insert int array instead of struct
-			vals = int(v.MdsTotal[mdt])
+			vals[0] = int32(v.MdsTotal[mdt].Opens)
+			vals[1] = int32(v.MdsTotal[mdt].Creates)
+			vals[2] = int32(v.MdsTotal[mdt].Queries)
+			vals[3] = int32(v.MdsTotal[mdt].Updates)
 
 			// insert aggregate data for OST
 			insertItems++
@@ -524,7 +527,10 @@ func mdsInsert(server string, inserter chan lustreserver.MdsValues, session *mgo
 			}
 			for nid := range v.NidValues[mdt] {
 				// temp array to insert int array instead of struct
-				vals = int(v.NidValues[mdt][nid])
+				vals[0] = int32(v.NidValues[mdt][nid].Opens)
+				vals[1] = int32(v.NidValues[mdt][nid].Creates)
+				vals[2] = int32(v.NidValues[mdt][nid].Queries)
+				vals[3] = int32(v.NidValues[mdt][nid].Updates)
 
 				// NID name translation, splitting at @ + IP resolution in case of IP address
 				nidname := strings.Split(nid, "@")[0]

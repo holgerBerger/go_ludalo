@@ -61,8 +61,8 @@ type MdsStats struct {
 type MdsValues struct {
 	Timestamp int32 // will be filled by aggregator and is used to transfer difference
 	Delta     int32 // time difference
-	MdsTotal  map[string]int64
-	NidValues map[string]map[string]int64
+	MdsTotal  map[string]MdsStats
+	NidValues map[string]map[string]MdsStats
 }
 
 // OstValues contains maps with total values for each OST and for values for each nid for each OST
@@ -106,6 +106,16 @@ func (a OstStats) sub(b OstStats) OstStats {
 	return result
 }
 
+// subtract b from a
+func (a MdsStats) sub(b MdsStats) MdsStats {
+	var result MdsStats
+	result.Opens = a.Opens - b.Opens
+	result.Creates = a.Creates - b.Creates
+	result.Queries = a.Queries - b.Queries
+	result.Updates = a.Updates - b.Updates
+	return result
+}
+
 // check for zero
 func (a OstStats) nonzero() bool {
 	if (a.WRqs == 0) && (a.RRqs == 0) && (a.WBs == 0) && (a.RBs == 0) {
@@ -114,9 +124,25 @@ func (a OstStats) nonzero() bool {
 	return true
 }
 
+// check for zero
+func (a MdsStats) nonzero() bool {
+	if (a.Opens == 0) && (a.Creates == 0) && (a.Queries == 0) && (a.Updates == 0) {
+		return false
+	}
+	return true
+}
+
 // check for positive values
 func (a OstStats) positive() bool {
 	if (a.WRqs < 0) || (a.RRqs < 0) || (a.WBs < 0) || (a.RBs < 0) {
+		return false
+	}
+	return true
+}
+
+// check for positive values
+func (a MdsStats) positive() bool {
+	if (a.Opens < 0) || (a.Creates < 0) || (a.Queries < 0) || (a.Updates < 0) {
 		return false
 	}
 	return true
@@ -303,10 +329,10 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 	var last, now int32
 	if _, err := os.Stat(Procdir + "mds"); err == nil {
 		if init {
-			mdsvalues[newpos].MdsTotal = make(map[string]int64)
-			mdsvalues[newpos].NidValues = make(map[string]map[string]int64)
-			mdsvalues[oldpos].MdsTotal = make(map[string]int64)
-			mdsvalues[oldpos].NidValues = make(map[string]map[string]int64)
+			mdsvalues[newpos].MdsTotal = make(map[string]MdsStats)
+			mdsvalues[newpos].NidValues = make(map[string]map[string]MdsStats)
+			mdsvalues[oldpos].MdsTotal = make(map[string]MdsStats)
+			mdsvalues[oldpos].NidValues = make(map[string]map[string]MdsStats)
 			mdsvalues[oldpos].Timestamp = int32(time.Now().Unix())
 		}
 
@@ -315,27 +341,27 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 		mdslist, nidSet := getMdtAndNidlist()
 		for _, mds := range mdslist {
 			mdsvalues[newpos].MdsTotal[mds] = readMdsStatfile(realmdtprocpath + "/" + mds + realstatname)
-			mdsvalues[newpos].NidValues[mds] = make(map[string]int64)
+			mdsvalues[newpos].NidValues[mds] = make(map[string]MdsStats)
 			for nid := range nidSet {
 				mdsvalues[newpos].NidValues[mds][nid] = readMdsStatfile(realmdtprocpath + "/" + mds + "/exports/" + nid + "/stats")
 			}
 		}
 
 		if !init {
-			result.MdsTotal = make(map[string]int64)
-			result.NidValues = make(map[string]map[string]int64)
+			result.MdsTotal = make(map[string]MdsStats)
+			result.NidValues = make(map[string]map[string]MdsStats)
 
 			// we do not send zero and values < 0, for compression reasons
 			// and as negative values indicate error conditions like counter overrun
 
 			for _, mds := range mdslist {
-				result.NidValues[mds] = make(map[string]int64)
+				result.NidValues[mds] = make(map[string]MdsStats)
 				_, ok := mdsvalues[oldpos].MdsTotal[mds]
 				if !ok {
 					continue // we skip this one as no old value is available, e.g. after failover
 				}
-				diff := mdsvalues[newpos].MdsTotal[mds] - mdsvalues[oldpos].MdsTotal[mds]
-				if diff > 0 {
+				diff := mdsvalues[newpos].MdsTotal[mds].sub(mdsvalues[oldpos].MdsTotal[mds])
+				if diff.positive() {
 					result.MdsTotal[mds] = diff
 					last = mdsvalues[oldpos].Timestamp
 					result.Delta = int32(now - last)
@@ -344,8 +370,8 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 						if !ok {
 							continue // we skip this one as no old value is available, e.g. after failover
 						}
-						diff := mdsvalues[newpos].NidValues[mds][nid] - mdsvalues[oldpos].NidValues[mds][nid]
-						if diff > 0 {
+						diff := mdsvalues[newpos].NidValues[mds][nid].sub(mdsvalues[oldpos].NidValues[mds][nid])
+						if diff.nonzero() && diff.positive() {
 							result.NidValues[mds][nid] = diff
 						}
 					}
@@ -367,13 +393,13 @@ func (*MdsRpcT) GetValuesDiff(init bool, result *MdsValues) error {
 func (*MdsRpcT) GetValues(arg int, result *MdsValues) error {
 	// fmt.Printf("RPC mds\n")
 	if _, err := os.Stat(Procdir + "mds"); err == nil {
-		result.MdsTotal = make(map[string]int64)
-		result.NidValues = make(map[string]map[string]int64)
+		result.MdsTotal = make(map[string]MdsStats)
+		result.NidValues = make(map[string]map[string]MdsStats)
 
 		mdslist, nidSet := getMdtAndNidlist()
 		for _, mds := range mdslist {
 			result.MdsTotal[mds] = readMdsStatfile(realmdtprocpath + "/" + mds + "/stats")
-			result.NidValues[mds] = make(map[string]int64)
+			result.NidValues[mds] = make(map[string]MdsStats)
 			for nid := range nidSet {
 				result.NidValues[mds][nid] = readMdsStatfile(realmdtprocpath + "/" + mds + "/exports/" + nid + "/stats")
 			}
@@ -416,35 +442,9 @@ func readOstStatfile(filename string) OstStats {
 	return stats
 }
 
-// read MDS performance values from file, return 64bit number of requests
-func readMdsStatfile(filename string) int64 {
-	var requests int64
-	var v int64
-	f, err := os.Open(filename)
-	if err == nil {
-		r := bufio.NewReader(f)
-
-		line, isPrefix, err := r.ReadLine()
-		for err == nil && !isPrefix {
-			s := string(line)
-
-			if strings.Index(s, "samples") != -1 {
-				fields := strings.Fields(s)
-				nr := len(fields)
-				v, _ = strconv.ParseInt(fields[nr-3], 10, 64)
-				requests += v
-			}
-			line, isPrefix, err = r.ReadLine()
-		}
-
-		f.Close()
-		// fmt.Printf("%s %v\n",filename, requests)
-	}
-	return requests
-}
-
-// read MDS performance values from file, return 64bit number of requests
-func readMdsStatfileV2(filename string) MdsStats {
+// read MDS performance values from file,
+// new version reads several values
+func readMdsStatfile(filename string) MdsStats {
 	var requests MdsStats
 	var v int64
 	f, err := os.Open(filename)
