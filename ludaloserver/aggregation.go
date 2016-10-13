@@ -86,7 +86,7 @@ func aggregation_worker(databasechan chan *mgo.Database) {
 		err := jobcollection.Find(bson.M{"end": -1}).All(&jobs)
 		if err == nil {
 			for i := range jobs {
-				fmt.Println(jobs[i].Jobid)
+				// fmt.Println(jobs[i].Jobid)
 
 				now := time.Now().Unix()
 				jobstart := jobs[i].Start
@@ -151,27 +151,23 @@ func aggregation_worker(databasechan chan *mgo.Database) {
 							}).All(&data)
 							if err == nil {
 								for _, d := range data {
-									fmt.Println(d)
+									// some trickery with type assertions and casts
 									_, ok := d["mdt"]
 									if ok {
-										fmt.Println("v===",d["v"])
-										if v, ok := d["v"].([4]int32); ok {
-											fmt.Println("adding ", v)
-											m1 += v[0]
-											m2 += v[1]
-											m3 += v[2]
-											m4 += v[3]
+										if v, ok := d["v"].([]interface{}); ok {
+											m1 += int32(v[0].(int))
+											m2 += int32(v[1].(int))
+											m3 += int32(v[2].(int))
+											m4 += int32(v[3].(int))
 										}
 									} else {
 										_, ok := d["ost"]
 										if ok {
-											fmt.Println("v===",d["v"])
-											if v, ok := d["v"].([4]float32); ok {
-												fmt.Println("adding ",v)
-												d1 += v[0]
-												d2 += v[1]
-												d3 += v[2]
-												d4 += v[3]
+											if v, ok := d["v"].([]interface{}); ok {
+												d1 += float32(v[0].(float64))
+												d2 += float32(v[1].(float64))
+												d3 += float32(v[2].(float64))
+												d4 += float32(v[3].(float64))
 											}
 										}
 									}
@@ -189,10 +185,10 @@ func aggregation_worker(databasechan chan *mgo.Database) {
 						"metav": [4]int32{m1, m2, m3, m4},
 						"datav": [4]float32{d1, d2, d3, d4},
 					}})
-				if err==nil {
-					fmt.Println("updated",jobs[i].ID)
+				if err == nil {
+					log.Println("  updated", jobs[i].ID)
 				} else {
-					fmt.Println(err)
+					log.Println(" ", err, jobs[i].Jobid)
 				}
 
 			} // jobs
