@@ -127,7 +127,8 @@ func aggregation_worker(databasechan chan *mgo.Database) {
 
 				// construct a nodelist
 				// FIXME expand nids for alps
-				nodelist := strings.Split(jobs[i].Nids, ",")
+				// nodelist := strings.Split(jobs[i].Nids, ",")
+				nodelist := nidexpander(jobs[i].Nids)
 
 				collections, _ := database.CollectionNames()
 				for _, collname := range collections {
@@ -197,4 +198,27 @@ func aggregation_worker(databasechan chan *mgo.Database) {
 		}
 		log.Println("ended aggregation worker cycle after", time.Now().Sub(t1))
 	}
+}
+
+// nidexpander expands comma separated lists containing ranges (only if tokens
+// do not contain letters)
+//  "n1,n2" -> ["n1","n2"]
+//  "1-3" -> ["1","2","3"]
+//  "n1-n3" -> NOT DEFINED
+func nidexpander(nids string) []string {
+	result := make([]string, 0, 0)
+
+	for _, i := range strings.Split(nids, ",") {
+		if strings.Contains(i, "-") {
+			sp := strings.Split(i, "-")
+			start, _ := strconv.Atoi(sp[0])
+			end, _ := strconv.Atoi(sp[1])
+			for ii := start; ii <= end; ii++ {
+				result = append(result, strconv.Itoa(ii))
+			}
+		} else {
+			result = append(result, i)
+		}
+	}
+	return result
 }
