@@ -4,6 +4,7 @@ package main
 
 import (
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,9 +98,10 @@ func (m *AsynchMongoDB) Shutdown() {
 
 // InsertJob inserts a job into database
 func (m *AsynchMongoDB) InsertJob(jobid string, start time.Time) {
+	year := strconv.Itoa(time.Now().Year())
 	m.insert <- Jobentry{
-		strings.Trim(jobid, "'"),
-		strings.Trim(jobid, "'"),
+		strings.Trim(jobid, "'") + "-" + year,
+		strings.Trim(jobid, "'") + "-" + year,
 		"",
 		int32(start.Unix()),
 		-1,
@@ -116,14 +118,16 @@ func (m *AsynchMongoDB) InsertCompleteJob(job Jobentry) {
 
 // AddJobInfo inserts a job into database
 func (m *AsynchMongoDB) AddJobInfo(jobid, uid, cmd, nids string) {
-	query := bson.M{"_id": strings.Trim(jobid, "'")}
+	year := strconv.Itoa(time.Now().Year())
+	query := bson.M{"_id": strings.Trim(jobid, "'") + "-" + year}
 	change := bson.M{"$set": bson.M{"owner": uid, "cmd": strings.Trim(cmd, "'"), "nids": nids}}
 	m.update <- updatepair{query, change}
 }
 
 // EndJob inserts a job into database
 func (m *AsynchMongoDB) EndJob(jobid string, end time.Time) {
-	query := bson.M{"_id": strings.Trim(jobid, "'")}
+	year := strconv.Itoa(time.Now().Year())
+	query := bson.M{"_id": strings.Trim(jobid, "'") + "-" + year}
 	change := bson.M{"$set": bson.M{"end": int32(end.Unix())}}
 	m.update <- updatepair{query, change}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,10 +57,11 @@ func NewMongo() *MongoDB {
 // InsertJob inserts a job into database
 func (m *MongoDB) InsertJob(jobid string, start time.Time) {
 	var delay = 1
+	year := strconv.Itoa(time.Now().Year())
 retryInsert:
 	err := m.collection.Insert(bson.M{
-		"_id":   strings.Trim(jobid, "'"),
-		"jobid": strings.Trim(jobid, "'"),
+		"_id":   strings.Trim(jobid, "'") + "-" + year,
+		"jobid": strings.Trim(jobid, "'") + "-" + year,
 		"owner": "",
 		"start": int32(start.Unix()),
 		"end":   -1,
@@ -80,6 +82,9 @@ retryInsert:
 func (m *MongoDB) InsertCompleteJob(job Jobentry) {
 	var delay = 1
 retryInsert:
+	year := strconv.Itoa(time.Now().Year())
+	job.Jobid = job.Jobid + "-" + year
+	job.ID = job.ID + "-" + year
 	err := m.collection.Insert(&job)
 	if err != nil && !mgo.IsDup(err) && (strings.Contains(err.Error(), "no reachable") || err.Error() == "EOF") && delay < retryCount {
 		log.Println("    error in insert, refreshing session and waiting...", err, delay, "/", retryCount)
@@ -92,7 +97,8 @@ retryInsert:
 
 // AddJobInfo inserts a job into database
 func (m *MongoDB) AddJobInfo(jobid, uid, cmd, nids string) {
-	query := bson.M{"_id": strings.Trim(jobid, "'")}
+	year := strconv.Itoa(time.Now().Year())
+	query := bson.M{"_id": strings.Trim(jobid, "'") + "-" + year}
 	change := bson.M{"$set": bson.M{"owner": uid, "cmd": strings.Trim(cmd, "'"), "nids": nids}}
 	var delay = 1
 retryUpdate:
@@ -108,7 +114,8 @@ retryUpdate:
 
 // EndJob inserts a job into database
 func (m *MongoDB) EndJob(jobid string, end time.Time) {
-	query := bson.M{"_id": strings.Trim(jobid, "'")}
+	year := strconv.Itoa(time.Now().Year())
+	query := bson.M{"_id": strings.Trim(jobid, "'") + "-" + year}
 	change := bson.M{"$set": bson.M{"end": int32(end.Unix())}}
 	var delay = 1
 retryUpdate:
