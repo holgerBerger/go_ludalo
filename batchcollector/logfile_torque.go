@@ -109,7 +109,7 @@ func (l *TorqueLogfile) readToEnd() {
 				}
 
 				end = -1
-				jobstarts[jobid] = Jobentry{jobid, jobid, owner, int32(start), int32(end), "", nids, -1}
+				jobstarts[jobid] = Jobentry{jobid, jobid, owner, int32(start), int32(end), "", nids, -1, [4]int32{0, 0, 0, 0}, [4]float32{0, 0, 0, 0}}
 				log.Println("  new job:", jobid, owner, time.Unix(int64(start), 0).Format(time.RFC822), len(nodelist), "nodes")
 				totaljobs++
 
@@ -126,7 +126,7 @@ func (l *TorqueLogfile) readToEnd() {
 				}
 				end = int(t.Unix())
 				log.Println("  end job:", jobid, time.Unix(int64(end), 0).Format(time.RFC822))
-				jobends[jobid] = Jobentry{jobid, jobid, owner, int32(start), int32(end), "", "", -1}
+				jobends[jobid] = Jobentry{jobid, jobid, owner, int32(start), int32(end), "", "", -1, [4]int32{0, 0, 0, 0}, [4]float32{0, 0, 0, 0}}
 
 			}
 		}

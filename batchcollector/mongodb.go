@@ -25,15 +25,18 @@ type MongoDB struct {
 
 // Jobentry mongo document
 type Jobentry struct {
-	ID    string `bson:"_id,omitempty"`
-	Jobid string `bson:"jobid"`
-	Owner string `bson:"owner"`
-	Start int32  `bson:"start"`
-	End   int32  `bson:"end"`
-	Cmd   string `bson:"cmd"`
-	Nids  string `bson:"nids"`
-	Calc  int    `bson:"calc"`
+	ID      string     `bson:"_id,omitempty"`
+	Jobid   string     `bson:"jobid"`
+	Owner   string     `bson:"owner"`
+	Start   int32      `bson:"start"`
+	End     int32      `bson:"end"`
+	Cmd     string     `bson:"cmd"`
+	Nids    string     `bson:"nids"`
+	Cachets int32      `bson:"cachets"`
+	MetaV   [4]int32   `bson:"metav"`
+	DataV   [4]float32 `bson:"datav"`
 }
+
 
 // NewMongo creates db connection
 func NewMongo() *MongoDB {

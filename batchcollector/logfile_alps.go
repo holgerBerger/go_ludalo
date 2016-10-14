@@ -70,7 +70,7 @@ func (l *AlpsLogfile) readToEnd() {
 			log.Println("  new job", jobid, resid, time)
 
 			// l.mongo.InsertJob(jobid, time)
-			jobstarts[jobid] = Jobentry{jobid, jobid, "", int32(time.Unix()), -1, "", "", -1}
+			jobstarts[jobid] = Jobentry{jobid, jobid, "", int32(time.Unix()), -1, "", "", -1,	[4]int32{0,0,0,0},[4]float32{0,0,0,0}}
 
 			totaljobs++
 			res2job.setJob(resid, jobid)
@@ -94,7 +94,7 @@ func (l *AlpsLogfile) readToEnd() {
 			log.Println("    new aprun", jobid, resid, uid, cmd, nids)
 
 			// l.mongo.AddJobInfo(jobid, uid, cmd, nids)
-			jobupdates[jobid] = Jobentry{jobid, jobid, uid, -1, -1, cmd, nids, -1}
+			jobupdates[jobid] = Jobentry{jobid, jobid, uid, -1, -1, cmd, nids, -1,[4]int32{0,0,0,0},[4]float32{0,0,0,0}}
 
 			continue
 		}
@@ -125,7 +125,7 @@ func (l *AlpsLogfile) readToEnd() {
 			log.Println("  end job", jobid, resid, time)
 
 			//l.mongo.EndJob(jobid, time)
-			jobends[jobid] = Jobentry{jobid, jobid, "", -1, int32(time.Unix()), "", "", -1}
+			jobends[jobid] = Jobentry{jobid, jobid, "", -1, int32(time.Unix()), "", "",-1,[4]int32{0,0,0,0},[4]float32{0,0,0,0}}
 
 			// be so kind and free storage in local DB
 			res2job.delJob(resid)

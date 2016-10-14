@@ -108,6 +108,8 @@ func (m *AsynchMongoDB) InsertJob(jobid string, start time.Time) {
 		"",
 		"",
 		-1,
+		[4]int32{0,0,0,0},
+		[4]float32{0,0,0,0},
 	}
 }
 
