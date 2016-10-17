@@ -256,7 +256,9 @@ func ossCollect(server string, signal chan int, inserter chan lustreserver.OstVa
 			timingLock.Unlock()
 
 			// copy data for RPC server
-			OssData[server] = replyOSS
+			OssDataMutex.Lock()
+			OssData[server] = replyOSS // FIXME concurent update
+			OssDataMutex.Unlock()
 
 			// push data to mongo inserter
 			inserter <- replyOSS

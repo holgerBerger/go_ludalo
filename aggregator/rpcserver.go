@@ -1,15 +1,18 @@
 package main
 
 import (
-	"github.com/holgerBerger/go_ludalo/lustreserver"
 	"log"
 	"net"
 	"net/rpc"
+	"sync"
+
+	"github.com/holgerBerger/go_ludalo/lustreserver"
 )
 
 // global variables for RPC access
 var (
-	OssData map[string]lustreserver.OstValues
+	OssData      map[string]lustreserver.OstValues
+	OssDataMutex sync.RWMutex
 )
 
 type ServerRpcT int
@@ -31,10 +34,12 @@ func startServer() {
 func (*ServerRpcT) OssList(in int, result *[]string) error {
 	*result = make([]string, len(OssData))
 	i := 0
+	OssDataMutex.RLock()
 	for v := range OssData {
 		(*result)[i] = v
 		i++
 	}
+	OssDataMutex.RUnlock()
 	return nil
 }
 
@@ -42,17 +47,21 @@ func (*ServerRpcT) OssList(in int, result *[]string) error {
 func (*ServerRpcT) OstList(in int, result *[]string) error {
 	c := 0
 	// count osts
+	OssDataMutex.RLock()
 	for v := range OssData {
 		c += len(OssData[v].OstTotal)
 	}
+	OssDataMutex.RUnlock()
 	*result = make([]string, c)
 	// assemble list
 	i := 0
+	OssDataMutex.RLock()
 	for v := range OssData {
 		for o := range OssData[v].OstTotal {
 			(*result)[i] = o
 			i++
 		}
 	}
+	OssDataMutex.RUnlock()
 	return nil
 }

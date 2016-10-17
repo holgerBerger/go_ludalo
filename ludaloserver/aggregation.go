@@ -189,7 +189,8 @@ func aggregation_worker(databasechan chan *mgo.Database) {
 				if err == nil {
 					log.Println("  updated", jobs[i].ID)
 				} else {
-					log.Println(" ", err, jobs[i].Jobid)
+					// most probably 'not found'
+					//log.Println(" ", err, jobs[i].Jobid)
 				}
 
 			} // jobs
