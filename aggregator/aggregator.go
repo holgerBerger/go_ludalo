@@ -100,7 +100,7 @@ var (
 
 // global variables for timing
 var (
-	timingLock     sync.Mutex
+	timingLock     sync.RWMutex
 	collectTimes   map[string]float32
 	insertTimes    map[string]float32
 	insertMDSItems map[string]int32
@@ -701,14 +701,18 @@ func Statistics() {
 	mdstotal = 0
 	osstotal = 0
 
+	timingLock.RLock()
 	for _, v := range insertMDSItems {
 		mdstotal += v
 	}
+	timingLock.RUnlock()
 	log.Println(" active mds nids:", mdstotal)
 
+	timingLock.RLock()
 	for _, v := range insertOSSItems {
 		osstotal += v
 	}
+	timingLock.RUnlock()
 	log.Println(" active oss nids:", osstotal)
 }
 
@@ -725,6 +729,7 @@ func Timing() {
 	max = 0.0
 	avg = 0.0
 	count = 0
+	timingLock.RLock()
 	for s, v := range collectTimes {
 		if v > max {
 			maxs = s
@@ -735,11 +740,13 @@ func Timing() {
 			count++
 		}
 	}
+	timingLock.RUnlock()
 	log.Printf(" collect : max %5.3f(%s) avg %5.3f secs", max, maxs, avg/float32(count))
 
 	max = 0.0
 	avg = 0.0
 	count = 0
+	timingLock.RLock()
 	for s, v := range insertTimes {
 		if v > max {
 			maxs = s
@@ -750,6 +757,7 @@ func Timing() {
 			count++
 		}
 	}
+	timingLock.RUnlock()
 	log.Printf(" insert  : max %5.3f(%s) avg %5.3f secs", max, maxs, avg/float32(count))
 }
 
