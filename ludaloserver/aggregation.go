@@ -126,7 +126,6 @@ func aggregation_worker(databasechan chan *mgo.Database) {
 				jey := time.Unix(int64(jobend), 0).Year()
 
 				// construct a nodelist
-				// FIXME expand nids for alps
 				// nodelist := strings.Split(jobs[i].Nids, ",")
 				nodelist := nidexpander(jobs[i].Nids)
 
@@ -143,7 +142,7 @@ func aggregation_worker(databasechan chan *mgo.Database) {
 							// fmt.Println("match:", collname)
 							// self.perfcoll.find({"$and": [ {"ts": {"$gt": start}}, {"ts": {"$lt": end}}, {"nid": {"$in": jobs[j].nodelist}} ] })
 							var data []bson.M
-							err := database.C(collname).Find(bson.M{
+							err = database.C(collname).Find(bson.M{
 								"$and": []bson.M{
 									bson.M{"ts": bson.M{"$gt": jobstart}},
 									bson.M{"ts": bson.M{"$lt": jobend}},
@@ -181,7 +180,7 @@ func aggregation_worker(databasechan chan *mgo.Database) {
 				} // collections
 
 				// update DB
-				err := database.C("jobs").Update(bson.M{"_id": jobs[i].ID},
+				err = database.C("jobs").Update(bson.M{"_id": jobs[i].ID},
 					bson.M{"$set": bson.M{"cachets": int32(now),
 						"metav": [4]int32{m1, m2, m3, m4},
 						"datav": [4]float32{d1, d2, d3, d4},
