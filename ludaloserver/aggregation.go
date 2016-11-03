@@ -26,6 +26,8 @@ type Jobentry struct {
 	DataV   [4]float32 `bson:"datav"`
 }
 
+var regex *regexp.Regexp
+
 // aggregation iterates over database and updates job data
 // is endless, triggers go routine aggregation_worker
 func aggregation() {
@@ -36,9 +38,11 @@ func aggregation() {
 		db           map[string]*mgo.Database
 		err          error
 		databasechan chan *mgo.Database
+		databasechan_month chan *mgo.Database
 	)
 
 	databasechan = make(chan *mgo.Database)
+	databasechan_month = make(chan *mgo.Database)
 
 	session = make(map[string]*mgo.Session, len(conf.Systems))
 	db = make(map[string]*mgo.Database, len(conf.Systems))
@@ -53,6 +57,20 @@ func aggregation() {
 
 	// launch background worker
 	go aggregation_worker(databasechan)
+	go aggregation_worker_month(databasechan_month)
+
+
+
+	// time daily check
+  go func(){
+	for {
+		for system, _ := range conf.Systems {
+			databasechan_month <- db[system]
+		}
+		// wait until next interval
+		time.Sleep(3600*24 * time.Second)
+	}
+	}()
 
 	// endless loop
 	for {
@@ -68,12 +86,6 @@ func aggregation() {
 // aggregation_worker go routine to iterate in background over data
 func aggregation_worker(databasechan chan *mgo.Database) {
 	var database *mgo.Database
-	var m1, m2, m3, m4 int32
-	var d1, d2, d3, d4 float32
-
-	// regex to match name, month and year of a collection name
-	// a collection matching this pattern is assumed to be a performance collection
-	regex, _ := regexp.Compile(`(.*)(\d\d)(\d\d\d\d)`)
 
 	for {
 		database = <-databasechan
@@ -85,119 +97,166 @@ func aggregation_worker(databasechan chan *mgo.Database) {
 		var jobs []Jobentry
 		err := jobcollection.Find(bson.M{"end": -1}).All(&jobs)
 		if err == nil {
-			for i := range jobs {
+			for _,job := range jobs {
 				// fmt.Println(jobs[i].Jobid)
-
-				now := time.Now().Unix()
-				jobstart := jobs[i].Start
-				jobend := jobs[i].End
-				cachets := jobs[i].Cachets
-				if cachets > 0 {
-					jobstart = cachets
-					m1 = jobs[i].MetaV[0]
-					m2 = jobs[i].MetaV[1]
-					m3 = jobs[i].MetaV[2]
-					m4 = jobs[i].MetaV[3]
-					d1 = jobs[i].DataV[0]
-					d2 = jobs[i].DataV[1]
-					d3 = jobs[i].DataV[2]
-					d4 = jobs[i].DataV[3]
-				} else {
-					m1 = 0
-					m2 = 0
-					m3 = 0
-					m4 = 0
-					d1 = 0.0
-					d2 = 0.0
-					d3 = 0.0
-					d4 = 0.0
-				}
-				if jobend == -1 {
-					jobend = int32(now)
-				}
-
-				// fmt.Println("start:", time.Unix(int64(jobstart),0))
-				// fmt.Println("end:", time.Unix(int64(jobend),0))
-
-				jsm := int(time.Unix(int64(jobstart), 0).Month())
-				jsy := time.Unix(int64(jobstart), 0).Year()
-
-				jem := int(time.Unix(int64(jobend), 0).Month())
-				jey := time.Unix(int64(jobend), 0).Year()
-
-				// construct a nodelist
-				// nodelist := strings.Split(jobs[i].Nids, ",")
-				nodelist := nidexpander(jobs[i].Nids)
-
-				collections, _ := database.CollectionNames()
-				for _, collname := range collections {
-					m := regex.FindStringSubmatch(collname)
-					if m != nil {
-						// fmt.Println(">>", m[0], m[1], m[2])
-						month, _ := strconv.Atoi(m[2])
-						year, _ := strconv.Atoi(m[3])
-
-						// is collection between start and end?
-						if (jsy <= year && jsm <= month) && (jey >= year && jem >= month) {
-							// fmt.Println("match:", collname)
-							// self.perfcoll.find({"$and": [ {"ts": {"$gt": start}}, {"ts": {"$lt": end}}, {"nid": {"$in": jobs[j].nodelist}} ] })
-							var data []bson.M
-							err = database.C(collname).Find(bson.M{
-								"$and": []bson.M{
-									bson.M{"ts": bson.M{"$gt": jobstart}},
-									bson.M{"ts": bson.M{"$lt": jobend}},
-									bson.M{"nid": bson.M{"$in": nodelist}},
-								},
-							}).All(&data)
-							if err == nil {
-								for _, d := range data {
-									// some trickery with type assertions and casts
-									_, ok := d["mdt"]
-									if ok {
-										if v, ok := d["v"].([]interface{}); ok {
-											m1 += int32(v[0].(int))
-											m2 += int32(v[1].(int))
-											m3 += int32(v[2].(int))
-											m4 += int32(v[3].(int))
-										}
-									} else {
-										_, ok := d["ost"]
-										if ok {
-											if v, ok := d["v"].([]interface{}); ok {
-												d1 += float32(v[0].(float64))
-												d2 += float32(v[1].(float64))
-												d3 += float32(v[2].(float64))
-												d4 += float32(v[3].(float64))
-											}
-										}
-									}
-								}
-							} else {
-								fmt.Println(err)
-							}
-						}
-					}
-				} // collections
-
-				// update DB
-				err = database.C("jobs").Update(bson.M{"_id": jobs[i].ID},
-					bson.M{"$set": bson.M{"cachets": int32(now),
-						"metav": [4]int32{m1, m2, m3, m4},
-						"datav": [4]float32{d1, d2, d3, d4},
-					}})
-				if err == nil {
-					log.Println("  updated", jobs[i].ID)
-				} else {
-					// most probably 'not found'
-					//log.Println(" ", err, jobs[i].Jobid)
-				}
-
+				updateJob(job, database)
 			} // jobs
 		} else {
 			log.Println(err)
 		}
 		log.Println("ended aggregation worker cycle after", time.Now().Sub(t1))
 	}
+}
+
+// aggregation_worker go routine to iterate in background over data
+// checks all jobs starting within last 30 days
+func aggregation_worker_month(databasechan chan *mgo.Database) {
+	var database *mgo.Database
+
+	for {
+		database = <-databasechan
+		log.Println("started aggregation worker month cycle, ql =", len(databasechan))
+		t1 := time.Now()
+		jobcollection := database.C("jobs")
+
+		// get all jobs which are still running
+		var jobs []Jobentry
+		onemonth := time.Now().Unix()-(3600*24*30)
+		err := jobcollection.Find(bson.M{"start": bson.M{"$gt": onemonth }}).All(&jobs)
+		if err == nil {
+			for _,job := range jobs {
+				// fmt.Println(jobs[i].Jobid)
+				updateJob(job, database)
+			} // jobs
+		} else {
+			log.Println(err)
+		}
+		log.Println("ended aggregation worker month cycle after", time.Now().Sub(t1))
+	}
+}
+
+// updateJob updates a job in DB
+// this is extracted to make it callable every few seconds
+// for unfinished jobs as well as sometimes for all jobs
+func updateJob(job Jobentry, database *mgo.Database) {
+	var m1, m2, m3, m4 int32
+	var d1, d2, d3, d4 float32
+
+	if regex == nil {
+		// regex to match name, month and year of a collection name
+		// a collection matching this pattern is assumed to be a performance collection
+		regex, _ = regexp.Compile(`(.*)(\d\d)(\d\d\d\d)`)
+	}
+
+	now := time.Now().Unix()
+	jobstart := job.Start
+	jobend := job.End
+	cachets := job.Cachets
+	if cachets > 0 {
+		jobstart = cachets
+		m1 = job.MetaV[0]
+		m2 = job.MetaV[1]
+		m3 = job.MetaV[2]
+		m4 = job.MetaV[3]
+		d1 = job.DataV[0]
+		d2 = job.DataV[1]
+		d3 = job.DataV[2]
+		d4 = job.DataV[3]
+	} else {
+		m1 = 0
+		m2 = 0
+		m3 = 0
+		m4 = 0
+		d1 = 0.0
+		d2 = 0.0
+		d3 = 0.0
+		d4 = 0.0
+	}
+	if jobend == -1 {
+		jobend = int32(now)
+	}
+
+ // we can stop here if cachets is uptodate
+ if cachets >= jobend {
+	 return
+ }
+
+	// fmt.Println("start:", time.Unix(int64(jobstart),0))
+	// fmt.Println("end:", time.Unix(int64(jobend),0))
+
+	jsm := int(time.Unix(int64(jobstart), 0).Month())
+	jsy := time.Unix(int64(jobstart), 0).Year()
+
+	jem := int(time.Unix(int64(jobend), 0).Month())
+	jey := time.Unix(int64(jobend), 0).Year()
+
+	// construct a nodelist
+	// nodelist := strings.Split(jobs[i].Nids, ",")
+	nodelist := nidexpander(job.Nids)
+
+	collections, _ := database.CollectionNames()
+	for _, collname := range collections {
+		m := regex.FindStringSubmatch(collname)
+		if m != nil {
+			// fmt.Println(">>", m[0], m[1], m[2])
+			month, _ := strconv.Atoi(m[2])
+			year, _ := strconv.Atoi(m[3])
+
+			// is collection between start and end?
+			if (jsy <= year && jsm <= month) && (jey >= year && jem >= month) {
+				// fmt.Println("match:", collname)
+				// self.perfcoll.find({"$and": [ {"ts": {"$gt": start}}, {"ts": {"$lt": end}}, {"nid": {"$in": jobs[j].nodelist}} ] })
+				var data []bson.M
+				err := database.C(collname).Find(bson.M{
+					"$and": []bson.M{
+						bson.M{"ts": bson.M{"$gt": jobstart}},
+						bson.M{"ts": bson.M{"$lt": jobend}},
+						bson.M{"nid": bson.M{"$in": nodelist}},
+					},
+				}).All(&data)
+				if err == nil {
+					for _, d := range data {
+						// some trickery with type assertions and casts
+						_, ok := d["mdt"]
+						if ok {
+							if v, ok := d["v"].([]interface{}); ok {
+								m1 += int32(v[0].(int))
+								m2 += int32(v[1].(int))
+								m3 += int32(v[2].(int))
+								m4 += int32(v[3].(int))
+							}
+						} else {
+							_, ok := d["ost"]
+							if ok {
+								if v, ok := d["v"].([]interface{}); ok {
+									d1 += float32(v[0].(float64))
+									d2 += float32(v[1].(float64))
+									d3 += float32(v[2].(float64))
+									d4 += float32(v[3].(float64))
+								}
+							}
+						}
+					}
+				} else {
+					fmt.Println(err)
+				}
+			}
+		}
+	} // collections
+
+	// update DB
+	err := database.C("jobs").Update(bson.M{"_id": job.ID},
+		bson.M{"$set": bson.M{"cachets": int32(now),
+			"metav": [4]int32{m1, m2, m3, m4},
+			"datav": [4]float32{d1, d2, d3, d4},
+		}})
+	if err == nil {
+		log.Println("  updated", job.ID)
+	} else {
+		// most probably 'not found'
+		//log.Println(" ", err, jobs[i].Jobid)
+	}
+
 }
 
 // nidexpander expands comma separated lists containing ranges (only if tokens
