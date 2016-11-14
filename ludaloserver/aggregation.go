@@ -29,6 +29,7 @@ type Jobentry struct {
 
 // bson.M{"$push": bson.M{"data": bson.M{"ts":ts, "m":[4]int32{m1,m2,m3,m4}, "o":[4]float32{d1,d2,d3,d4}}}},
 
+// SummaryEntry is how summary data for a job is stored in job_summary collection
 type SummaryEntry struct {
 	Ts   int
 	Meta [4]int32
@@ -38,7 +39,7 @@ type SummaryEntry struct {
 var regex *regexp.Regexp
 
 var (
-	updateRunning      bool
+	updateRunning      bool				// flag to signal if a summary update is running
 	updateRunningMutex sync.Mutex
 )
 
@@ -112,6 +113,8 @@ func aggregation_worker(databasechan chan *mgo.Database) {
 			for _, job := range jobs {
 				// fmt.Println(jobs[i].Jobid)
 				updateJob(job, database)
+				// some handcraftet locking with test here, we do not want to run a summary update while another
+				// is running, for performance reasons and to avoid clash of data, updating same job twice
 				updateRunningMutex.Lock()
 				if !updateRunning {
 					updateRunning = true
@@ -151,6 +154,8 @@ func aggregation_worker_month(databasechan chan *mgo.Database) {
 			for _, job := range jobs {
 				// fmt.Println(jobs[i].Jobid)
 				updateJob(job, database)
+				// some handcraftet locking with test here, we do not want to run a summary update while another
+				// is running, for performance reasons and to avoid clash of data, updating same job twice
 				updateRunningMutex.Lock()
 				if !updateRunning {
 					updateRunning = true
