@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,7 +27,20 @@ type Jobentry struct {
 	DataV   [4]float32 `bson:"datav"`
 }
 
+// bson.M{"$push": bson.M{"data": bson.M{"ts":ts, "m":[4]int32{m1,m2,m3,m4}, "o":[4]float32{d1,d2,d3,d4}}}},
+
+type SummaryEntry struct {
+	Ts   int
+	Meta [4]int32
+	Ost  [4]float32
+}
+
 var regex *regexp.Regexp
+
+var (
+	updateRunning      bool
+	updateRunningMutex sync.Mutex
+)
 
 // aggregation iterates over database and updates job data
 // is endless, triggers go routine aggregation_worker
@@ -34,10 +48,10 @@ func aggregation() {
 
 	// prepare and cache database connections
 	var (
-		session      map[string]*mgo.Session
-		db           map[string]*mgo.Database
-		err          error
-		databasechan chan *mgo.Database
+		session            map[string]*mgo.Session
+		db                 map[string]*mgo.Database
+		err                error
+		databasechan       chan *mgo.Database
 		databasechan_month chan *mgo.Database
 	)
 
@@ -59,17 +73,15 @@ func aggregation() {
 	go aggregation_worker(databasechan)
 	go aggregation_worker_month(databasechan_month)
 
-
-
 	// time daily check
-  go func(){
-	for {
-		for system, _ := range conf.Systems {
-			databasechan_month <- db[system]
+	go func() {
+		for {
+			for system, _ := range conf.Systems {
+				databasechan_month <- db[system]
+			}
+			// wait until next interval
+			time.Sleep(3600 * 24 * time.Second)
 		}
-		// wait until next interval
-		time.Sleep(3600*24 * time.Second)
-	}
 	}()
 
 	// endless loop
@@ -97,9 +109,21 @@ func aggregation_worker(databasechan chan *mgo.Database) {
 		var jobs []Jobentry
 		err := jobcollection.Find(bson.M{"end": -1}).All(&jobs)
 		if err == nil {
-			for _,job := range jobs {
+			for _, job := range jobs {
 				// fmt.Println(jobs[i].Jobid)
 				updateJob(job, database)
+				updateRunningMutex.Lock()
+				if !updateRunning {
+					updateRunning = true
+					updateRunningMutex.Unlock()
+					updateJobSummary(job, database)
+					updateRunningMutex.Lock()
+					updateRunning = false
+					updateRunningMutex.Unlock()
+				} else {
+					updateRunningMutex.Unlock()
+				}
+
 			} // jobs
 		} else {
 			log.Println(err)
@@ -121,18 +145,168 @@ func aggregation_worker_month(databasechan chan *mgo.Database) {
 
 		// get all jobs which are still running
 		var jobs []Jobentry
-		onemonth := time.Now().Unix()-(3600*24*30)
-		err := jobcollection.Find(bson.M{"start": bson.M{"$gt": onemonth }}).All(&jobs)
+		onemonth := time.Now().Unix() - (3600 * 24 * 30)
+		err := jobcollection.Find(bson.M{"start": bson.M{"$gt": onemonth}}).All(&jobs)
 		if err == nil {
-			for _,job := range jobs {
+			for _, job := range jobs {
 				// fmt.Println(jobs[i].Jobid)
 				updateJob(job, database)
+				updateRunningMutex.Lock()
+				if !updateRunning {
+					updateRunning = true
+					updateRunningMutex.Unlock()
+					updateJobSummary(job, database)
+					updateRunningMutex.Lock()
+					updateRunning = false
+					updateRunningMutex.Unlock()
+				} else {
+					updateRunningMutex.Unlock()
+				}
 			} // jobs
 		} else {
 			log.Println(err)
 		}
 		log.Println("ended aggregation worker month cycle after", time.Now().Sub(t1))
 	}
+}
+
+// updateJobsummary updates the cached data for a timeline plot of a job
+// this data is kept in collection "job_summary"
+
+func updateJobSummary(job Jobentry, database *mgo.Database) {
+	var m1, m2, m3, m4 int32
+	var d1, d2, d3, d4 float32
+	var result bson.M
+	var lastdbts int32
+
+	log.Println("updateJobSummary", job.Jobid)
+
+	if regex == nil {
+		// regex to match name, month and year of a collection name
+		// a collection matching this pattern is assumed to be a performance collection
+		regex, _ = regexp.Compile(`(.*)(\d\d)(\d\d\d\d)`)
+	}
+
+	// check if job is in DB, if not, insert it.
+	err := database.C("job_summary").Find(bson.M{"_id": job.Jobid}).One(&result)
+	if err != nil {
+		database.C("job_summary").Insert(bson.M{"_id": job.Jobid, "lastts": int32(-1), "data": []string{}})
+		lastdbts = -1
+	} else {
+		if v, ok := result["lastts"].(interface{}); ok {
+			lastdbts = int32(v.(int))
+		}
+	}
+
+	// we do not have any data, search from jobstart
+	if lastdbts == -1 {
+		lastdbts = job.Start
+	}
+
+	jsm := int(time.Unix(int64(lastdbts), 0).Month())
+	jsy := time.Unix(int64(lastdbts), 0).Year()
+
+	var jobend int32
+	if job.End != -1 {
+		jobend = job.End
+	} else {
+		jobend = int32(time.Now().Unix())
+	}
+
+	jem := int(time.Unix(int64(jobend), 0).Month())
+	jey := time.Unix(int64(jobend), 0).Year()
+
+	// construct a nodelist
+	nodelist := nidexpander(job.Nids)
+
+	var currentts int
+
+	summarydata := make([]SummaryEntry, 0, 1024)
+
+	collections, _ := database.CollectionNames()
+	for _, collname := range collections {
+		m := regex.FindStringSubmatch(collname)
+		if m != nil {
+			month, _ := strconv.Atoi(m[2])
+			year, _ := strconv.Atoi(m[3])
+
+			// is collection between start and end?
+			if (jsy <= year && jsm <= month) && (jey >= year && jem >= month) {
+				// fmt.Println("match:", collname)
+				// self.perfcoll.find({"$and": [ {"ts": {"$gt": start}}, {"ts": {"$lt": end}}, {"nid": {"$in": jobs[j].nodelist}} ] })
+				var data []bson.M
+				err := database.C(collname).Find(bson.M{
+					"$and": []bson.M{
+						bson.M{"ts": bson.M{"$gt": lastdbts}},
+						bson.M{"ts": bson.M{"$lt": jobend}},
+						bson.M{"nid": bson.M{"$in": nodelist}},
+					},
+				}).Sort("ts").All(&data)
+				if err == nil {
+					currentts = -1
+					m1 = 0
+					m2 = 0
+					m3 = 0
+					m4 = 0
+					d1 = 0.0
+					d2 = 0.0
+					d3 = 0.0
+					d4 = 0.0
+					for _, d := range data {
+						// some trickery with type assertions and casts
+						// FIXME tuning check ost first
+						ts := int(d["ts"].(int))
+
+						// write old data in case we reach a new ts
+						if ts != currentts && currentts != -1 {
+							//fmt.Println("ts change", ts, currentts)
+							//fmt.Println(m1,m2,m3,m4,"-",d1,d2,d3,d4)
+							// insert data into DB
+							/*
+								err = database.C("job_summary").Update(bson.M{"_id": job.ID},
+									bson.M{"$push": bson.M{"data": bson.M{"ts":ts, "m":[4]int32{m1,m2,m3,m4}, "o":[4]float32{d1,d2,d3,d4}}}},
+									)
+							*/
+							summarydata = append(summarydata, SummaryEntry{ts, [4]int32{m1, m2, m3, m4}, [4]float32{d1, d2, d3, d4}})
+
+						}
+						_, ok := d["mdt"]
+						if ok {
+							if v, ok := d["v"].([]interface{}); ok {
+								m1 += int32(v[0].(int))
+								m2 += int32(v[1].(int))
+								m3 += int32(v[2].(int))
+								m4 += int32(v[3].(int))
+							}
+						} else {
+							_, ok := d["ost"]
+							if ok {
+								if v, ok := d["v"].([]interface{}); ok {
+									d1 += float32(v[0].(float64))
+									d2 += float32(v[1].(float64))
+									d3 += float32(v[2].(float64))
+									d4 += float32(v[3].(float64))
+								}
+							}
+						}
+
+						currentts = ts
+					}
+				} else {
+					fmt.Println(err)
+				}
+			}
+		}
+	} // collections
+
+	err = database.C("job_summary").Update(bson.M{"_id": job.ID},
+		bson.M{"$push": bson.M{"data": bson.M{"$each": summarydata}}},
+	)
+
+	err = database.C("job_summary").Update(bson.M{"_id": job.ID},
+		bson.M{"$set": bson.M{"lastts": int32(currentts)}})
+
+	log.Println("end updating", job.Jobid)
 }
 
 // updateJob updates a job in DB
@@ -176,10 +350,10 @@ func updateJob(job Jobentry, database *mgo.Database) {
 		jobend = int32(now)
 	}
 
- // we can stop here if cachets is uptodate
- if cachets >= jobend {
-	 return
- }
+	// we can stop here if cachets is uptodate
+	if cachets >= jobend {
+		return
+	}
 
 	// fmt.Println("start:", time.Unix(int64(jobstart),0))
 	// fmt.Println("end:", time.Unix(int64(jobend),0))
