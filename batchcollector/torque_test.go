@@ -28,18 +28,18 @@ func TestTorqueSimple1(t *testing.T) {
 	result := Jobentry{}
 
 	// try complete entry
-	mongo.collection.Find(bson.M{"_id": "799170"}).One(&result)
+	mongo.collection.Find(bson.M{"_id": "799170-2019"}).One(&result)
 
-	reference := Jobentry{"799170", "799170", "user1", 1471843328, 1471861570, "", "n091601,n091502,n091501,n091402,n091401,n091302,n091301,n091202,n091201,n091002,n091001,n090902,n090901", -1}
+	reference := Jobentry{"799170-2019", "799170-2019", "user1", 1471843328, 1471861570, "", "n091601,n091502,n091501,n091402,n091401,n091302,n091301,n091202,n091201,n091002,n091001,n090902,n090901", -1, [4]int32{0, 0, 0, 0}, [4]float32{0, 0, 0, 0}}
 
 	if reference != result {
 		t.Fail()
 	}
 
 	//  try incomplete entry
-	mongo.collection.Find(bson.M{"_id": "799171"}).One(&result)
+	mongo.collection.Find(bson.M{"_id": "799171-2019"}).One(&result)
 
-	reference = Jobentry{"799171", "799171", "user1", 1471843328, -1, "", "n091601,n091502,n091501,n091402,n091401,n091302,n091301,n091202,n091201,n091002,n091001,n090902,n090901", -1}
+	reference = Jobentry{"799171-2019", "799171-2019", "user1", 1471843328, -1, "", "n091601,n091502,n091501,n091402,n091401,n091302,n091301,n091202,n091201,n091002,n091001,n090902,n090901", -1, [4]int32{0, 0, 0, 0}, [4]float32{0, 0, 0, 0}}
 
 	if reference != result {
 		t.Fail()
@@ -105,21 +105,21 @@ func TestTorqueEvent1(t *testing.T) {
 
 	// get db entry
 	result := Jobentry{}
-	mongo.collection.Find(bson.M{"_id": "799170"}).One(&result)
+	mongo.collection.Find(bson.M{"_id": "799170-2019"}).One(&result)
 
 	// go noisy again
 	log.SetOutput(defaultOut)
 
-	reference := Jobentry{"799170", "799170", "user1", 1471843328, 1471861570, "", "n091601,n091502,n091501,n091402,n091401,n091302,n091301,n091202,n091201,n091002,n091001,n090902,n090901", -1}
+	reference := Jobentry{"799170-2019", "799170-2019", "user1", 1471843328, 1471861570, "", "n091601,n091502,n091501,n091402,n091401,n091302,n091301,n091202,n091201,n091002,n091001,n090902,n090901", -1, [4]int32{0, 0, 0, 0}, [4]float32{0, 0, 0, 0}}
 
 	if reference != result {
 		t.Fail()
 	}
 
 	//  try incomplete entry
-	mongo.collection.Find(bson.M{"_id": "799171"}).One(&result)
+	mongo.collection.Find(bson.M{"_id": "799171-2019"}).One(&result)
 
-	reference = Jobentry{"799171", "799171", "user1", 1471843328, -1, "", "n091601,n091502,n091501,n091402,n091401,n091302,n091301,n091202,n091201,n091002,n091001,n090902,n090901", -1}
+	reference = Jobentry{"799171-2019", "799171-2019", "user1", 1471843328, -1, "", "n091601,n091502,n091501,n091402,n091401,n091302,n091301,n091202,n091201,n091002,n091001,n090902,n090901", -1, [4]int32{0, 0, 0, 0}, [4]float32{0, 0, 0, 0}}
 
 	if reference != result {
 		t.Fail()
