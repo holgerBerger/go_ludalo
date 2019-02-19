@@ -15,6 +15,7 @@ type AlpsLogfile struct {
 	file   *os.File
 	mongo  MongoInserter
 	reader *bufio.Reader
+	remainder []byte
 }
 
 // newLogfile opens a file and reads to current end
@@ -27,7 +28,7 @@ func newAlpsLogfile(name string, mongo MongoInserter) *AlpsLogfile {
 	if res2job == nil {
 		res2job = NewRes2job("res2job.db")
 	}
-	logfile := AlpsLogfile{name, file, mongo, reader}
+	logfile := AlpsLogfile{name, file, mongo, reader, nil}
 	log.Println("opened new logfile", name)
 
 	logfile.readToEnd()
@@ -56,8 +57,14 @@ func (l *AlpsLogfile) readToEnd() {
 		line, err := l.reader.ReadBytes('\n')
 		//fmt.Println(line)
 		if err != nil {
+			l.remainder = line
 			break
 		}
+		if l.remainder!=nil {
+			line = append(l.remainder, line...)
+			l.remainder = nil
+		}
+
 
 		// Bound apid lines are mapping resids to batchIds, this is the start of
 		// a job, but we do not know more that resevration id and batch id
